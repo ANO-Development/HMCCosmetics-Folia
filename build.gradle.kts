@@ -9,20 +9,23 @@ plugins {
 }
 
 group = "com.hibiscusmc"
-version = "2.9.2-folia.1"
+version = "2.9.2-paper-1.21.11.1"
 
-val defaultHibiscusCommonsJar = rootProject.file("../HibiscusCommons/output/HibiscusCommons-0.9.3-folia.1.jar")
+val defaultHibiscusCommonsJar = rootProject.file("../HibiscusCommons/output/HibiscusCommons-0.9.3-paper-1.21.11.1.jar")
 val hibiscusCommonsJar = providers.gradleProperty("hibiscusCommonsJar").map(::file).orElse(defaultHibiscusCommonsJar)
 val verifyHibiscusCommonsDependency = tasks.register("verifyHibiscusCommonsDependency") {
     group = "verification"
     inputs.file(hibiscusCommonsJar)
     doLast {
         val artifact = hibiscusCommonsJar.get()
-        if (!artifact.isFile) throw GradleException("HibiscusCommons 0.9.3-folia.1 was not found at ${artifact.absolutePath}.")
+        if (!artifact.isFile) throw GradleException("HibiscusCommons 0.9.3-paper-1.21.11.1 was not found at ${artifact.absolutePath}.")
         ZipFile(artifact).use { jar ->
             val descriptor = jar.getInputStream(jar.getEntry("plugin.yml")).bufferedReader().readText()
-            if (!descriptor.contains("version: 0.9.3-folia.1")) {
-                throw GradleException("HMCCosmetics must compile against HibiscusCommons 0.9.3-folia.1 exactly.")
+            if (!descriptor.contains("version: 0.9.3-paper-1.21.11.1")) {
+                throw GradleException("HMCCosmetics must compile against HibiscusCommons 0.9.3-paper-1.21.11.1 exactly.")
+            }
+            if (!descriptor.contains("api-version: 1.21.11") || descriptor.contains("folia-supported: true")) {
+                throw GradleException("HMCCosmetics must compile against the Paper 1.21.11 HibiscusCommons artifact.")
             }
         }
     }
@@ -89,7 +92,7 @@ allprojects {
     dependencies {
         compileOnly(fileTree("${project.rootDir}/lib") { include("*.jar") })
         compileOnly("com.mojang:authlib:1.5.25")
-        compileOnly("dev.folia:folia-api:26.2.build.1-beta")
+        compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
         compileOnly("net.kyori:examination-api:1.3.0")
         compileOnly("org.jetbrains:annotations:24.1.0")
         compileOnly("me.clip:placeholderapi:2.11.6")
@@ -113,7 +116,7 @@ allprojects {
         testCompileOnly("org.projectlombok:lombok:1.18.44")
         testAnnotationProcessor("org.projectlombok:lombok:1.18.44")
         testCompileOnly("org.jetbrains:annotations:24.1.0")
-        testImplementation("dev.folia:folia-api:26.2.build.1-beta")
+        testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
         testImplementation(files(hibiscusCommonsJar))
         compileOnly("com.nexomc:nexo:1.24.0")
 
@@ -158,7 +161,7 @@ tasks {
 
     compileJava {
         options.encoding = Charsets.UTF_8.name()
-        options.release.set(25)
+        options.release.set(21)
     }
 
     javadoc {
@@ -171,7 +174,7 @@ tasks {
     }
 
     runServer {
-        minecraftVersion("26.2")
+        minecraftVersion("1.21.11")
 
         downloadPlugins {
             hangar("PlaceholderAPI", "2.12.2")
@@ -206,9 +209,9 @@ tasks {
         dependsOn(shadowJar)
     }
 
-    register("verifyFoliaSafety") {
+    register("verifySchedulerSafety") {
         group = "verification"
-        description = "Rejects APIs that are unsafe on Folia region threads."
+        description = "Rejects unsafe scheduling, blocking teleports, and packet callbacks."
         doLast {
             val forbidden = linkedMapOf(
                 "legacy Bukkit scheduler" to Regex("Bukkit\\.getScheduler\\(|BukkitRunnable|\\.runTask(?:Later|Timer|Asynchronously)?\\("),
@@ -227,20 +230,20 @@ tasks {
                     }
                 }
             }
-            if (violations.isNotEmpty()) throw GradleException(violations.joinToString("\n", "Folia safety violations:\n"))
+            if (violations.isNotEmpty()) throw GradleException(violations.joinToString("\n", "Scheduler safety violations:\n"))
         }
     }
 
-    register("verifyFoliaArtifact") {
+    register("verifyPaperArtifact") {
         group = "verification"
-        description = "Inspects the release JAR metadata, bytecode, and dependency boundaries."
+        description = "Inspects the Paper 1.21.11 JAR metadata, bytecode, and dependency boundaries."
         dependsOn(shadowJar)
         doLast {
             val artifact = shadowJar.get().archiveFile.get().asFile
             ZipFile(artifact).use { jar ->
                 val descriptor = jar.getInputStream(jar.getEntry("plugin.yml")).bufferedReader().readText()
-                if (!descriptor.contains("api-version: \"26.2\"")) throw GradleException("plugin.yml does not target API 26.2.")
-                if (!descriptor.contains("folia-supported: true")) throw GradleException("plugin.yml does not declare Folia support.")
+                if (!descriptor.contains("api-version: 1.21.11")) throw GradleException("plugin.yml does not target API 1.21.11.")
+                if (descriptor.contains("folia-supported: true")) throw GradleException("The Paper artifact incorrectly declares Folia support.")
                 if (!descriptor.contains("HibiscusCommons")) throw GradleException("plugin.yml does not require HibiscusCommons.")
 
                 val entries = jar.entries().asSequence().toList()
@@ -253,8 +256,8 @@ tasks {
                 }.forEach { entry ->
                     jar.getInputStream(entry).use { input ->
                         val header = input.readNBytes(8)
-                        if (header.size != 8 || header[6].toInt() != 0 || header[7].toInt() != 69)
-                            throw GradleException("${entry.name} is not Java 25 bytecode.")
+                        if (header.size != 8 || header[6].toInt() != 0 || header[7].toInt() != 65)
+                            throw GradleException("${entry.name} is not Java 21 bytecode.")
                     }
                 }
             }
@@ -262,7 +265,7 @@ tasks {
     }
 
     check {
-        dependsOn("verifyFoliaSafety", "verifyFoliaArtifact", ":common:test")
+        dependsOn("verifySchedulerSafety", "verifyPaperArtifact", ":common:test")
     }
 }
 
@@ -270,8 +273,7 @@ tasks {
 bukkit {
     load = BukkitPluginDescription.PluginLoadOrder.POSTWORLD
     main = "com.hibiscusmc.hmccosmetics.HMCCosmeticsPlugin"
-    foliaSupported = true
-    apiVersion = "26.2"
+    apiVersion = "1.21.11"
     authors = listOf("LoJoSho")
     depend = listOf("HibiscusCommons")
     softDepend = listOf("Nexo", "BetterHud", "ModelEngine", "Oraxen", "ItemsAdder", "Geary", "HMCColor", "WorldGuard", "MythicMobs", "PlaceholderAPI", "SuperVanish", "PremiumVanish", "LibsDisguises", "Denizen", "MMOItems", "Eco")
@@ -375,7 +377,7 @@ bukkit {
 }
 
 java {
-    toolchain.languageVersion.set(JavaLanguageVersion.of(25))
+    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
 
     withJavadocJar()
     withSourcesJar()
