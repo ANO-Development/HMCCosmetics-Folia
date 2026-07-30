@@ -1,9 +1,7 @@
 package com.hibiscusmc.hmccosmetics.user;
 
-import com.hibiscusmc.hmccosmetics.util.HMCCServerUtils;
-import org.bukkit.Bukkit;
-import org.bukkit.World;
-import org.bukkit.entity.Entity;
+import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshot;
+import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshots;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -45,6 +43,8 @@ public class CosmeticUsers {
 
     /**
      * This method allows you to get a CosmeticUser from their UUID. If you are using not internally, HIGHLY recommend to use the API implementation of this.
+     * Mutable operations on the returned user must run on the owning player's entity scheduler. Prefer
+     * {@link com.hibiscusmc.hmccosmetics.api.CosmeticUserOperations#execute(UUID, java.util.function.Consumer)}.
      * @param uuid The UUID of the user that you wish to lookup.
      * @return Returns the user if there is a valid user, returns null if not.
      */
@@ -69,12 +69,16 @@ public class CosmeticUsers {
      * @return The cosmetic user if there is an entity id associated with that.
      */
     @Nullable
+    @Deprecated(forRemoval = false)
     public static CosmeticUser getUser(int entityId) {
-        for (World world : Bukkit.getWorlds()) {
-            if (HMCCServerUtils.getEntity(entityId, world) instanceof Player player)
-                return COSMETIC_USERS.get(player.getUniqueId());
-        }
-        return null;
+        CosmeticPacketSnapshot snapshot = CosmeticPacketSnapshots.findUnique(entityId);
+        return snapshot == null ? null : COSMETIC_USERS.get(snapshot.playerId());
+    }
+
+    @Nullable
+    public static CosmeticUser getUser(@NotNull UUID worldId, int entityId) {
+        CosmeticPacketSnapshot snapshot = CosmeticPacketSnapshots.get(worldId, entityId);
+        return snapshot == null ? null : COSMETIC_USERS.get(snapshot.playerId());
     }
 
     /**

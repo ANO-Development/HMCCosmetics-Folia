@@ -4,16 +4,16 @@ import me.lojosho.shaded.configurate.ConfigurationNode;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class TranslationUtil {
 
     // unlocked-cosmetic -> true -> True
-    private static final HashMap<@NotNull String, @NotNull List<TranslationPair>> KEYS = new HashMap<>();
+    private static volatile Map<String, List<TranslationPair>> keys = Map.of();
 
     public static void setup(@NotNull ConfigurationNode config) {
-        KEYS.clear();
+        java.util.HashMap<String, List<TranslationPair>> loadedKeys = new java.util.HashMap<>();
         for (ConfigurationNode node : config.childrenMap().values()) {
             final ArrayList<TranslationPair> pairs = new ArrayList<>();
             for (ConfigurationNode translatableMessage : node.childrenMap().values()) {
@@ -25,12 +25,14 @@ public class TranslationUtil {
                 MessagesUtil.sendDebugMessages("Overall Key " + node.key().toString());
                 MessagesUtil.sendDebugMessages("Key '" + pair.key() + "' Value '" + pair.value() + "'");
             }
-            KEYS.put(node.key().toString().toLowerCase(), pairs);
+            loadedKeys.put(node.key().toString().toLowerCase(), List.copyOf(pairs));
         }
+        keys = Map.copyOf(loadedKeys);
     }
 
     public static String getTranslation(@NotNull String key, @NotNull String message) {
-        final List<TranslationPair> pairs = KEYS.get(key);
+        List<TranslationPair> pairs = keys.get(key.toLowerCase());
+        if (pairs == null) return message;
         for (TranslationPair pair : pairs) {
             if (pair.key().equals(message.toLowerCase())) return pair.value();
         }

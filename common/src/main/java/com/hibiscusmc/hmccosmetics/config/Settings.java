@@ -14,6 +14,7 @@ import org.bukkit.util.Vector;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 
 public class Settings {
@@ -108,7 +109,7 @@ public class Settings {
     private static boolean nexoChangeReload;
     @Getter
     private static boolean worldGuardMoveCheck;
-    private static final HashMap<EquipmentSlot, SlotOptionConfig> slotOptions = new HashMap<>();
+    private static volatile Map<EquipmentSlot, SlotOptionConfig> slotOptions = Map.of();
     @Getter
     private static boolean destroyLooseCosmetics;
     @Getter
@@ -139,7 +140,6 @@ public class Settings {
     private static Long defaultMenuCooldown;
     @Getter
     private static boolean menuClickCooldown;
-    @Getter
     private static Vector balloonOffset;
     @Getter
     private static String cosmeticEquipClickType;
@@ -223,6 +223,7 @@ public class Settings {
         backpackInterceptPassengerPacket = cosmeticSettings.node(COSMETIC_BACKPACK_INTERCEPT_PASSENGER_PACKET_PATH).getBoolean(true);
         preventOffhandSwapping = cosmeticSettings.node(COSMETIC_OFFHAND_PREVENT_SWAPPING).getBoolean(false);
 
+        HashMap<EquipmentSlot, SlotOptionConfig> loadedSlotOptions = new HashMap<>();
         cosmeticSettings.node(SLOT_OPTIONS_PATH).childrenMap().forEach((key, value) -> {
             EquipmentSlot slot = convertConfigToEquipment(key.toString().toLowerCase());
             if (slot == null) {
@@ -233,8 +234,9 @@ public class Settings {
             boolean requireEmpty = value.node("require-empty").getBoolean(false);
             boolean addElytraComponent = value.node("add-elytra-componnt").getBoolean(true);
             boolean attemptDamagePassthrough = value.node("passthrough-damage").getBoolean(true);
-            slotOptions.put(slot, new SlotOptionConfig(slot, addEnchantments, requireEmpty, addElytraComponent, attemptDamagePassthrough));
+            loadedSlotOptions.put(slot, new SlotOptionConfig(slot, addEnchantments, requireEmpty, addElytraComponent, attemptDamagePassthrough));
         });
+        slotOptions = Map.copyOf(loadedSlotOptions);
 
         tickPeriod = cosmeticSettings.node(TICK_PERIOD_PATH).getInt(-1);
         engine = PlayerSearchManager.SearchEngine.valueOf(cosmeticSettings.node(PLAYER_SEARCH_IMPLEMENTATION).getString("BUKKIT").toUpperCase());
@@ -306,8 +308,11 @@ public class Settings {
     }
 
     public static SlotOptionConfig getSlotOption(EquipmentSlot slot) {
-        if (!slotOptions.containsKey(slot)) slotOptions.put(slot, new SlotOptionConfig(slot, false, false, false, false));
-        return slotOptions.get(slot);
+        return slotOptions.getOrDefault(slot, new SlotOptionConfig(slot, false, false, false, false));
+    }
+
+    public static Vector getBalloonOffset() {
+        return balloonOffset.clone();
     }
 
     public static void setDebugMode(boolean newSetting) {

@@ -2,8 +2,8 @@ package com.hibiscusmc.hmccosmetics.database.types;
 
 import com.hibiscusmc.hmccosmetics.HMCCosmeticsPlugin;
 import com.hibiscusmc.hmccosmetics.config.section.DatabaseSettings;
+import com.hibiscusmc.hmccosmetics.database.Database;
 import com.hibiscusmc.hmccosmetics.util.MessagesUtil;
-import org.bukkit.Bukkit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,7 +35,6 @@ public class MySQLData extends SQLData {
         password = DatabaseSettings.getPassword();
         port = DatabaseSettings.getPort();
 
-        HMCCosmeticsPlugin plugin = HMCCosmeticsPlugin.getInstance();
         try {
             openConnection();
             if (connection == null) throw new IllegalStateException("Connection is null");
@@ -45,59 +44,50 @@ public class MySQLData extends SQLData {
                     ");")) {
                 preparedStatement.execute();
             }
-        } catch (SQLException | IllegalStateException e) {
-            plugin.getLogger().severe("");
-            plugin.getLogger().severe("");
-            plugin.getLogger().severe("MySQL DATABASE CAN NOT BE REACHED.");
-            plugin.getLogger().severe("CHECK CONFIG FOR ERRORS");
-            plugin.getLogger().severe("");
-            plugin.getLogger().severe("SAFETY SHUTTING DOWN SERVER");
-            plugin.getLogger().severe("");
-            plugin.getLogger().severe("");
-            Bukkit.shutdown();
-            throw new RuntimeException(e);
+        } catch (SQLException | IllegalStateException exception) {
+            throw new IllegalStateException("The configured MySQL database could not be initialized.", exception);
         }
     }
 
     @Override
     public void clear(UUID uniqueId) {
-        Bukkit.getScheduler().runTaskAsynchronously(HMCCosmeticsPlugin.getInstance(), () -> {
+        Database.execute(() -> {
             try (PreparedStatement preparedSt = preparedStatement("DELETE FROM COSMETICDATABASE WHERE UUID=?;")) {
                 preparedSt.setString(1, uniqueId.toString());
                 preparedSt.executeUpdate();
             } catch (SQLException e) {
-                e.printStackTrace();
+                throw new RuntimeException(e);
             }
+        }).exceptionally(exception -> {
+            HMCCosmeticsPlugin.getInstance().getLogger().log(Level.SEVERE, "Unable to clear cosmetic data for " + uniqueId + ".", exception);
+            return null;
         });
     }
 
     private void openConnection() throws SQLException {
         // Connection isn't null AND Connection isn't closed :: return
-        try {
-            if (isConnectionOpen()) return;
-            if (connection != null) close(); // Close connection if still active
-        } catch (RuntimeException e) {
-            e.printStackTrace(); // If isConnectionOpen() throws error
-        }
+        if (isConnectionOpen()) return;
+        if (connection != null) close();
 
         // Connect to database host
         try {
-            Class.forName("com.mysql.jdbc.Driver");
+            Class.forName("com.mysql.cj.jdbc.Driver");
             connection = DriverManager.getConnection("jdbc:mysql://" + host + ":" + port + "/" + database, setupProperties());
-        } catch (SQLException | ClassNotFoundException e) {
-            System.out.println(e.getMessage());
+        } catch (ClassNotFoundException exception) {
+            throw new SQLException("The MySQL JDBC driver is unavailable.", exception);
         }
     }
 
+    @Override
     public void close() {
-        Bukkit.getScheduler().runTaskAsynchronously(HMCCosmeticsPlugin.getInstance(), () -> {
-            try {
-                if (connection == null) throw new IllegalStateException("Connection is null");
-                connection.close();
-            } catch (SQLException | NullPointerException e) {
-                System.out.println(e.getMessage());
-            }
-        });
+        if (connection == null) return;
+        try {
+            connection.close();
+        } catch (SQLException exception) {
+            HMCCosmeticsPlugin.getInstance().getLogger().log(Level.WARNING, "Unable to close the MySQL connection cleanly.", exception);
+        } finally {
+            connection = null;
+        }
     }
 
     @NotNull
@@ -124,16 +114,16 @@ public class MySQLData extends SQLData {
             MessagesUtil.sendDebugMessages("The MySQL database connection is not open (Could the database been idle for to long?). Reconnecting...", Level.WARNING);
             try {
                 openConnection();
-            } catch (SQLException e) {
-                e.printStackTrace();
+            } catch (SQLException exception) {
+                throw new IllegalStateException("Unable to reconnect to MySQL.", exception);
             }
         }
 
         try {
             if (connection == null) throw new IllegalStateException("Connection is null");
             ps = connection.prepareStatement(query);
-        } catch (SQLException | IllegalStateException e) {
-            e.printStackTrace();
+        } catch (SQLException | IllegalStateException exception) {
+            throw new IllegalStateException("Unable to prepare a MySQL statement.", exception);
         }
 
         return ps;

@@ -8,7 +8,6 @@ import com.hibiscusmc.hmccosmetics.database.UserData;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
 import com.hibiscusmc.hmccosmetics.util.MessagesUtil;
 import org.apache.commons.lang3.EnumUtils;
-import org.bukkit.Color;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -21,66 +20,86 @@ public abstract class Data {
 
     public abstract void save(CosmeticUser user);
 
+    public void save(UserData userData) {
+        throw new UnsupportedOperationException(getClass().getName() + " does not support immutable user snapshots.");
+    }
+
     @Nullable
     public abstract CompletableFuture<UserData> get(UUID uniqueId);
 
     public abstract void clear(UUID uniqueId);
 
+    public void close() {
+    }
+
     // BACKPACK=colorfulbackpack&RRGGBB,HELMET=niftyhat,BALLOON=colorfulballoon,CHESTPLATE=niftychestplate
     @NotNull
     public final String serializeData(@NotNull CosmeticUser user) {
+        return serializeData(UserData.snapshot(user));
+    }
+
+    @NotNull
+    public final String serializeData(@NotNull UserData userData) {
         StringBuilder data = new StringBuilder();
-        if (user.isHidden()) {
-            for (CosmeticUser.HiddenReason reason :  user.getHiddenReasons()) {
-                if (shouldHiddenSave(reason)) data.append("HIDDEN=").append(reason);
-            }
+        for (CosmeticUser.HiddenReason reason : userData.getHiddenReasons()) {
+            if (!shouldHiddenSave(reason)) continue;
+            appendEntry(data, "HIDDEN=" + reason);
         }
-        for (Cosmetic cosmetic : user.getCosmetics()) {
-            Color color = user.getCosmeticColor(cosmetic.getSlot());
-            String input = cosmetic.getSlot() + "=" + cosmetic.getId();
-            if (color != null) input = input + "&" + color.asRGB();
-            if (data.isEmpty()) {
-                data.append(input);
-                continue;
-            }
-            data.append(",").append(input);
+        for (Map.Entry<CosmeticSlot, Map.Entry<Cosmetic, Integer>> entry : userData.getCosmetics().entrySet()) {
+            Cosmetic cosmetic = entry.getValue().getKey();
+            int color = entry.getValue().getValue();
+            String input = entry.getKey() + "=" + cosmetic.getId();
+            if (color != -1) input = input + "&" + color;
+            appendEntry(data, input);
         }
         return data.toString();
     }
 
     @NotNull
     public final HashMap<CosmeticSlot, Map.Entry<Cosmetic, Integer>> deserializeData(@NotNull String raw) {
+        return deserializeUserData(UUID.randomUUID(), raw).getCosmetics();
+    }
+
+    @NotNull
+    public final UserData deserializeUserData(@NotNull UUID owner, @Nullable String raw) {
+        UserData userData = new UserData(owner);
+        if (raw == null || raw.isBlank()) return userData;
         HashMap<CosmeticSlot, Map.Entry<Cosmetic, Integer>> cosmetics = new HashMap<>();
 
         String[] rawData = raw.split(",");
-        ArrayList<CosmeticUser.HiddenReason> hiddenReason = new ArrayList<>();
         for (String a : rawData) {
-            if (a == null || a.isEmpty()) continue;
-            String[] splitData = a.split("=");
-            CosmeticSlot slot = null;
-            Cosmetic cosmetic = null;
+            if (a == null || a.isBlank()) continue;
+            String[] splitData = a.split("=", 2);
+            if (splitData.length != 2 || splitData[0].isBlank() || splitData[1].isBlank()) continue;
             MessagesUtil.sendDebugMessages("First split (suppose slot) " + splitData[0]);
             if (splitData[0].equalsIgnoreCase("HIDDEN")) {
-                if (EnumUtils.isValidEnum(CosmeticUser.HiddenReason.class, splitData[1])) {
-                    if (Settings.isForceShowOnJoin()) continue;
-                    hiddenReason.add(CosmeticUser.HiddenReason.valueOf(splitData[1]));
-                }
+                if (!Settings.isForceShowOnJoin() && EnumUtils.isValidEnum(CosmeticUser.HiddenReason.class, splitData[1]))
+                    userData.addHiddenReason(CosmeticUser.HiddenReason.valueOf(splitData[1]));
                 continue;
             }
-            if (CosmeticSlot.valueOf(splitData[0]) != null) slot = CosmeticSlot.valueOf(splitData[0]);
+
+            CosmeticSlot slot = CosmeticSlot.valueOf(splitData[0]);
+            if (slot == null) continue;
+            Cosmetic cosmetic = null;
+            int color = -1;
             if (splitData[1].contains("&")) {
-                String[] colorSplitData = splitData[1].split("&");
+                String[] colorSplitData = splitData[1].split("&", 2);
+                if (colorSplitData.length != 2) continue;
                 if (Cosmetics.hasCosmetic(colorSplitData[0])) cosmetic = Cosmetics.getCosmetic(colorSplitData[0]);
-                if (slot == null || cosmetic == null) continue;
-                cosmetics.put(slot, Map.entry(cosmetic, Integer.parseInt(colorSplitData[1])));
+                if (cosmetic == null) continue;
+                try {
+                    color = Integer.parseInt(colorSplitData[1]);
+                } catch (NumberFormatException exception) {
+                    continue;
+                }
             } else {
                 if (Cosmetics.hasCosmetic(splitData[1])) cosmetic = Cosmetics.getCosmetic(splitData[1]);
-                if (slot == null || cosmetic == null) continue;
-                cosmetics.put(slot, Map.entry(cosmetic, -1));
             }
+            if (cosmetic != null) cosmetics.put(slot, Map.entry(cosmetic, color));
         }
 
-        return cosmetics;
+        userData.setCosmetics(cosmetics);
+        return userData;
     }
 
     private boolean shouldHiddenSave(CosmeticUser.HiddenReason reason) {
@@ -92,5 +111,10 @@ public abstract class Data {
                 return true;
             }
         }
+    }
+
+    private void appendEntry(StringBuilder data, String entry) {
+        if (!data.isEmpty()) data.append(',');
+        data.append(entry);
     }
 }

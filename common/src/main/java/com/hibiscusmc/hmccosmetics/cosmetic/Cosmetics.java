@@ -1,6 +1,5 @@
 package com.hibiscusmc.hmccosmetics.cosmetic;
 
-import com.google.common.collect.HashBiMap;
 import com.hibiscusmc.hmccosmetics.HMCCosmeticsPlugin;
 import com.hibiscusmc.hmccosmetics.util.MessagesUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -16,61 +15,71 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.stream.Stream;
 
 @Slf4j
 public class Cosmetics {
-    private static final HashBiMap<String, Cosmetic> COSMETICS = HashBiMap.create();
+    private static volatile Map<String, Cosmetic> cosmetics = Map.of();
+    private static final ThreadLocal<Map<String, Cosmetic>> LOADING_COSMETICS = new ThreadLocal<>();
 
     private static CosmeticProvider PROVIDER = CosmeticProvider.Default.INSTANCE;
 
-    public static void addCosmetic(Cosmetic cosmetic) {
-        COSMETICS.put(cosmetic.getId(), cosmetic);
+    public static synchronized void addCosmetic(Cosmetic cosmetic) {
+        Map<String, Cosmetic> loading = LOADING_COSMETICS.get();
+        if (loading != null) {
+            loading.put(cosmetic.getId(), cosmetic);
+            return;
+        }
+        Map<String, Cosmetic> updated = new HashMap<>(cosmetics);
+        updated.put(cosmetic.getId(), cosmetic);
+        cosmetics = Map.copyOf(updated);
     }
 
-    public static void removeCosmetic(String id) {
-        COSMETICS.remove(id);
+    public static synchronized void removeCosmetic(String id) {
+        Map<String, Cosmetic> updated = new HashMap<>(cosmetics);
+        updated.remove(id);
+        cosmetics = Map.copyOf(updated);
     }
 
     public static void removeCosmetic(Cosmetic cosmetic) {
-        COSMETICS.remove(cosmetic.getId());
+        removeCosmetic(cosmetic.getId());
     }
 
     @Nullable
     public static Cosmetic getCosmetic(String id) {
-        return COSMETICS.get(id);
+        return cosmetics.get(id);
     }
 
     @Contract(pure = true)
     @NotNull
     public static Set<Cosmetic> values() {
-        return COSMETICS.values();
+        return Set.copyOf(cosmetics.values());
     }
 
     @Contract(pure = true)
     @NotNull
     public static Set<String> keys() {
-        return COSMETICS.keySet();
+        return cosmetics.keySet();
     }
 
     public static boolean hasCosmetic(String id) {
-        return COSMETICS.containsKey(id);
+        return cosmetics.containsKey(id);
     }
 
     public static boolean hasCosmetic(Cosmetic cosmetic) {
-        return COSMETICS.containsValue(cosmetic);
+        return cosmetics.containsValue(cosmetic);
     }
 
     public static void setup() {
-        COSMETICS.clear();
+        Map<String, Cosmetic> loadedCosmetics = new HashMap<>();
+        LOADING_COSMETICS.set(loadedCosmetics);
 
         File cosmeticFolder = new File(HMCCosmeticsPlugin.getInstance().getDataFolder() + "/cosmetics");
         if (!cosmeticFolder.exists()) cosmeticFolder.mkdir();
-
-        File[] directoryListing = cosmeticFolder.listFiles();
-        if (directoryListing == null) return;
 
         try (Stream<Path> walkStream = Files.walk(cosmeticFolder.toPath())) {
             walkStream.filter(p -> p.toFile().isFile()).forEach(child -> {
@@ -88,9 +97,12 @@ public class Cosmetics {
                 }
             });
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Unable to load cosmetics.", e);
+        } finally {
+            LOADING_COSMETICS.remove();
         }
 
+        cosmetics = Map.copyOf(loadedCosmetics);
         refreshPermissions();
     }
 

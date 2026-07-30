@@ -19,6 +19,11 @@ public class NoneData extends Data {
     }
 
     @Override
+    public void save(UserData userData) {
+        // Nothing
+    }
+
+    @Override
     public @Nullable CompletableFuture<UserData> get(UUID uniqueId) {
         return CompletableFuture.completedFuture(new UserData(uniqueId));
     }

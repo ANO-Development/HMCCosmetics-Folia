@@ -1,8 +1,8 @@
 package com.hibiscusmc.hmccosmetics.database.types;
 
 import com.hibiscusmc.hmccosmetics.HMCCosmeticsPlugin;
+import com.hibiscusmc.hmccosmetics.database.Database;
 import com.hibiscusmc.hmccosmetics.util.MessagesUtil;
-import org.bukkit.Bukkit;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,13 +47,16 @@ public class SQLiteData extends SQLData {
     @Override
     @SuppressWarnings("resource")
     public void clear(UUID uniqueId) {
-        Bukkit.getScheduler().runTaskAsynchronously(HMCCosmeticsPlugin.getInstance(), () -> {
+        Database.execute(() -> {
             try (PreparedStatement preparedSt = preparedStatement("DELETE FROM COSMETICDATABASE WHERE UUID=?;")){
                 preparedSt.setString(1, uniqueId.toString());
                 preparedSt.executeUpdate();
             } catch (SQLException e) {
-                e.printStackTrace();
+                throw new RuntimeException(e);
             }
+        }).exceptionally(exception -> {
+            HMCCosmeticsPlugin.getInstance().getLogger().log(Level.SEVERE, "Unable to clear cosmetic data for " + uniqueId + ".", exception);
+            return null;
         });
     }
 
@@ -82,8 +85,8 @@ public class SQLiteData extends SQLData {
                 openConnection();
             }
             ps = connection.prepareStatement(query);
-        } catch (SQLException e) {
-            e.printStackTrace();
+        } catch (SQLException exception) {
+            throw new IllegalStateException("Unable to prepare a SQLite statement.", exception);
         }
 
         return ps;
@@ -94,6 +97,18 @@ public class SQLiteData extends SQLData {
             return connection != null && !connection.isClosed();
         } catch (SQLException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public void close() {
+        if (connection == null) return;
+        try {
+            connection.close();
+        } catch (SQLException exception) {
+            HMCCosmeticsPlugin.getInstance().getLogger().log(Level.WARNING, "Unable to close the SQLite connection cleanly.", exception);
+        } finally {
+            connection = null;
         }
     }
 }

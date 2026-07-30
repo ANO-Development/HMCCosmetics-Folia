@@ -13,6 +13,7 @@ import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
 import com.hibiscusmc.hmccosmetics.util.MessagesUtil;
 import me.lojosho.hibiscuscommons.config.serializer.ItemSerializer;
 import me.lojosho.hibiscuscommons.hooks.Hooks;
+import me.lojosho.hibiscuscommons.util.FoliaScheduler;
 import me.lojosho.shaded.configurate.ConfigurationNode;
 import me.lojosho.shaded.configurate.serialize.SerializationException;
 import org.bukkit.Bukkit;
@@ -24,6 +25,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 
 public class TypeCosmetic extends Type {
 
@@ -59,8 +61,8 @@ public class TypeCosmetic extends Type {
             try {
                 if (!actionConfig.node("no-permission").virtual()) actionStrings.addAll(actionConfig.node("no-permission").getList(String.class));
                 Actions.runActions(viewer, cosmeticHolder, actionStrings);
-            } catch (SerializationException e) {
-                e.printStackTrace();
+            } catch (SerializationException exception) {
+                HMCCosmeticsPlugin.getInstance().getLogger().log(Level.WARNING, "Unable to load no-permission menu actions.", exception);
             }
             return;
         }
@@ -110,7 +112,6 @@ public class TypeCosmetic extends Type {
                 MessagesUtil.sendDebugMessages("on-equip");
                 MessagesUtil.sendDebugMessages("Preparing for on-equip with the following checks:");
                 MessagesUtil.sendDebugMessages("CosmeticDyeable? " + cosmetic.isDyeable() + " / isDyeClick? " + isDyeClick + " / isHMCColorActive? " + Hooks.isActiveHook("HMCColor"));
-                // TODO: Redo this
                 if (cosmetic.isDyeable() && isDyeClick && DyeMenuProvider.canOpenDyeMenu()) {
                     DyeMenuProvider.openMenu(viewer, cosmeticHolder, cosmetic);
                 } else if (isRequiredClick) {
@@ -120,14 +121,14 @@ public class TypeCosmetic extends Type {
 
             Actions.runActions(viewer, cosmeticHolder, actionStrings);
 
-        } catch (SerializationException e) {
-            e.printStackTrace();
+        } catch (SerializationException exception) {
+            HMCCosmeticsPlugin.getInstance().getLogger().log(Level.WARNING, "Unable to load cosmetic menu actions.", exception);
         }
         // Fixes issue with offhand cosmetics not appearing. Yes, I know this is dumb
         Runnable run = () -> cosmeticHolder.updateCosmetic(cosmetic.getSlot());
         if (cosmetic instanceof CosmeticArmorType) {
             if (((CosmeticArmorType) cosmetic).getEquipSlot().equals(EquipmentSlot.OFF_HAND)) {
-                Bukkit.getScheduler().runTaskLater(HMCCosmeticsPlugin.getInstance(), run, 1);
+                FoliaScheduler.runEntityLater(HMCCosmeticsPlugin.getInstance(), viewer, run, null, 1L);
             }
         }
         run.run();
@@ -165,8 +166,8 @@ public class TypeCosmetic extends Type {
             // If not defined, use the item defined in the regular item
             try {
                 if (equippedItem.node("material").virtual()) equippedItem.node("material").set(config.node("item", "material").getString());
-            } catch (SerializationException e) {
-                e.printStackTrace();
+            } catch (SerializationException exception) {
+                throw new IllegalStateException("Unable to inherit the equipped item material.", exception);
             }
 
             try {
@@ -187,8 +188,8 @@ public class TypeCosmetic extends Type {
             // If not defined, use the item defined in the regular item
             try {
                 if (lockedItem.node("material").virtual()) lockedItem.node("material").set(config.node("item", "material").getString());
-            } catch (SerializationException e) {
-                e.printStackTrace();
+            } catch (SerializationException exception) {
+                throw new IllegalStateException("Unable to inherit the locked item material.", exception);
             }
 
             try {

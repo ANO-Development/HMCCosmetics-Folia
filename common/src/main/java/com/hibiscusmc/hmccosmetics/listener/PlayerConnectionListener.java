@@ -8,9 +8,11 @@ import com.hibiscusmc.hmccosmetics.api.events.PlayerUnloadEvent;
 import com.hibiscusmc.hmccosmetics.config.section.DatabaseSettings;
 import com.hibiscusmc.hmccosmetics.database.Database;
 import com.hibiscusmc.hmccosmetics.gui.Menus;
+import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshots;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUsers;
 import com.hibiscusmc.hmccosmetics.util.MessagesUtil;
+import me.lojosho.hibiscuscommons.util.FoliaScheduler;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -27,11 +29,7 @@ public class PlayerConnectionListener implements Listener {
     public void onPlayerJoin(@NotNull PlayerJoinEvent event) {
         if (DatabaseSettings.isEnabledDelay()) {
             MessagesUtil.sendDebugMessages("Delay Enabled with " + DatabaseSettings.getDelayLength() + " ticks");
-            Bukkit.getScheduler().runTaskLater(
-                HMCCosmeticsPlugin.getInstance(),
-                () -> this.loadUserData(event.getPlayer()),
-                DatabaseSettings.getDelayLength()
-            );
+            FoliaScheduler.runEntityLater(HMCCosmeticsPlugin.getInstance(), event.getPlayer(), () -> this.loadUserData(event.getPlayer()), null, DatabaseSettings.getDelayLength());
         } else {
             this.loadUserData(event.getPlayer());
         }
@@ -46,24 +44,25 @@ public class PlayerConnectionListener implements Listener {
         if (preLoadEvent.isCancelled()) return;
 
         Database.get(playerId).thenAccept(userData -> {
-            Bukkit.getScheduler().runTask(HMCCosmeticsPlugin.getInstance(), () -> {
+            FoliaScheduler.runEntity(HMCCosmeticsPlugin.getInstance(), player, () -> {
                 CosmeticUser cosmeticUser = CosmeticUsers.getProvider()
                     .createCosmeticUser(playerId)
                     .initialize(userData);
                 cosmeticUser.startTicking();
 
                 CosmeticUsers.addUser(cosmeticUser);
+                cosmeticUser.refreshPacketSnapshot();
                 MessagesUtil.sendDebugMessages("Run User Join for " + playerId);
 
                 PlayerLoadEvent playerLoadEvent = new PlayerLoadEvent(cosmeticUser);
                 Bukkit.getPluginManager().callEvent(playerLoadEvent);
 
                 // And finally, launch an update for the cosmetics they have.
-                Bukkit.getScheduler().runTaskLater(HMCCosmeticsPlugin.getInstance(), () -> {
+                FoliaScheduler.runEntityLater(HMCCosmeticsPlugin.getInstance(), player, () -> {
                     if (cosmeticUser.getPlayer() == null) return;
                     cosmeticUser.updateCosmetic();
-                }, 4);
-            });
+                }, null, 4L);
+            }, null);
         }).exceptionally(ex -> {
             MessagesUtil.sendDebugMessages("Unable to load Cosmetic User " + playerId + ". Exception: " + ex.getMessage());
             return null;
@@ -89,8 +88,9 @@ public class PlayerConnectionListener implements Listener {
             if(player != null) player.setInvisible(false);
         }
         Menus.removeCooldown(event.getPlayer().getUniqueId()); // Removes any menu cooldowns a player might have
-        Database.save(user);
+        Database.save(Database.capture(user));
         user.destroy();
+        CosmeticPacketSnapshots.remove(user.getUniqueId());
         CosmeticUsers.removeUser(user.getUniqueId());
     }
 

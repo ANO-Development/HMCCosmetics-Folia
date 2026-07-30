@@ -17,22 +17,23 @@ import org.jetbrains.annotations.Nullable;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Level;
 
 public class MessagesUtil {
 
-    private static String prefix;
-    private static final HashMap<String, String> MESSAGES = new HashMap<>();
+    private static volatile MessageSnapshot snapshot = new MessageSnapshot("", Map.of());
 
     public static void setup(@NotNull ConfigurationNode config) {
-        MESSAGES.clear();
-
-        prefix = config.node("prefix").getString("");
+        HashMap<String, String> messages = new HashMap<>();
+        String prefix = config.node("prefix").getString("");
         for (ConfigurationNode node : config.childrenMap().values()) {
             if (node.virtual()) continue;
             if (node.empty()) continue;
-            MESSAGES.put(node.key().toString(), node.getString());
+            String message = node.getString();
+            if (message != null) messages.put(node.key().toString(), message);
         }
+        snapshot = new MessageSnapshot(prefix, Map.copyOf(messages));
      }
 
     public static void sendMessage(@NotNull CosmeticUser user, String key) {
@@ -90,11 +91,11 @@ public class MessagesUtil {
 
     @Nullable
     public static Component processString(Player player, String key, TagResolver placeholders) {
-        if (!MESSAGES.containsKey(key)) return null;
-        if (MESSAGES.get(key) == null) return null;
-        String message = MESSAGES.get(key);
+        MessageSnapshot current = snapshot;
+        String message = current.messages().get(key);
+        if (message == null) return null;
         if (player != null) message = Hooks.processPlaceholders(player, message);
-        message = message.replaceAll("%prefix%", prefix);
+        message = message.replace("%prefix%", current.prefix());
         if (placeholders != null ) {
             return AdventureUtils.MINI_MESSAGE.deserialize(message, placeholders);
         }
@@ -113,7 +114,7 @@ public class MessagesUtil {
 
     @NotNull
     public static Component processStringNoKey(Player player, String message, TagResolver placeholders) {
-        message = message.replaceAll("%prefix%", prefix);
+        message = message.replace("%prefix%", snapshot.prefix());
         if (player != null) message = Hooks.processPlaceholders(player, message);
         if (placeholders != null ) {
             return AdventureUtils.MINI_MESSAGE.deserialize(message, placeholders);
@@ -122,7 +123,7 @@ public class MessagesUtil {
     }
 
     public static String processStringNoKeyString(Player player, String message) {
-        message = message.replaceAll("%prefix%", prefix);
+        message = message.replace("%prefix%", snapshot.prefix());
         if (player != null) message = Hooks.processPlaceholders(player, message);
         return message;
     }
@@ -134,5 +135,8 @@ public class MessagesUtil {
     public static void sendDebugMessages(String message, Level level) {
         if (!Settings.isDebugMode() && level == Level.INFO) return;
         HMCCosmeticsPlugin.getInstance().getLogger().log(level, message);
+    }
+
+    private record MessageSnapshot(String prefix, Map<String, String> messages) {
     }
 }

@@ -23,34 +23,42 @@ public class Menus {
 
     private static final List<String> FILES_TO_IGNORE = List.of("internal_dye_menu.yml");
 
-    private static final HashMap<String, Menu> MENUS = new HashMap<>();
-    private static final HashMap<UUID, Long> COOLDOWNS = new HashMap<>();
+    private static volatile Map<String, Menu> menus = Map.of();
+    private static final ThreadLocal<Map<String, Menu>> LOADING_MENUS = new ThreadLocal<>();
+    private static final Map<UUID, Long> COOLDOWNS = new java.util.concurrent.ConcurrentHashMap<>();
 
-    public static void addMenu(@NotNull Menu menu) {
-        MENUS.put(menu.getId().toUpperCase(), menu);
+    public static synchronized void addMenu(@NotNull Menu menu) {
+        Map<String, Menu> loading = LOADING_MENUS.get();
+        if (loading != null) {
+            loading.put(menu.getId().toUpperCase(), menu);
+            return;
+        }
+        Map<String, Menu> updated = new HashMap<>(menus);
+        updated.put(menu.getId().toUpperCase(), menu);
+        menus = Map.copyOf(updated);
     }
 
     @Nullable
     public static Menu getMenu(@NotNull String id) {
-        return MENUS.get(id.toUpperCase());
+        return menus.get(id.toUpperCase());
     }
 
     @Contract(pure = true)
     @NotNull
     public static Collection<Menu> getMenu() {
-        return MENUS.values();
+        return menus.values();
     }
 
     public static boolean hasMenu(@NotNull String id) {
-        return MENUS.containsKey(id.toUpperCase());
+        return menus.containsKey(id.toUpperCase());
     }
 
     public static boolean hasMenu(@NotNull Menu menu) {
-        return MENUS.containsValue(menu);
+        return menus.containsValue(menu);
     }
 
     public static boolean hasDefaultMenu() {
-        return MENUS.containsKey(Settings.getDefaultMenu());
+        return menus.containsKey(Settings.getDefaultMenu().toUpperCase());
     }
 
     @Nullable
@@ -62,7 +70,7 @@ public class Menus {
     public static List<String> getMenuNames() {
         List<String> names = new ArrayList<>();
 
-        for (Menu menu : MENUS.values()) {
+        for (Menu menu : menus.values()) {
             names.add(menu.getId());
         }
 
@@ -70,7 +78,7 @@ public class Menus {
     }
 
     public static Collection<Menu> values() {
-        return MENUS.values();
+        return menus.values();
     }
 
     public static void addCooldown(UUID uuid, long time) {
@@ -86,8 +94,8 @@ public class Menus {
     }
 
     public static void setup() {
-        MENUS.clear();
-        COOLDOWNS.clear();
+        Map<String, Menu> loadedMenus = new HashMap<>();
+        LOADING_MENUS.set(loadedMenus);
 
         File menusFolder = new File(HMCCosmeticsPlugin.getInstance().getDataFolder() + "/menus");
         if (!menusFolder.exists()) menusFolder.mkdir();
@@ -108,16 +116,18 @@ public class Menus {
                     }
                     try {
                         new Menu(FilenameUtils.removeExtension(child.getFileName().toString()), root);
-                    } catch (Exception e) {
-                        MessagesUtil.sendDebugMessages("Unable to create menu in " + child.getFileName().toString(), Level.WARNING);
-                        if (Settings.isDebugMode()) e.printStackTrace();
+                    } catch (Exception exception) {
+                        HMCCosmeticsPlugin.getInstance().getLogger().log(Level.WARNING, "Unable to create menu from " + child.getFileName() + ".", exception);
                     }
                 }
             });
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Unable to load menus.", e);
+        } finally {
+            LOADING_MENUS.remove();
         }
 
+        menus = Map.copyOf(loadedMenus);
         refreshPermissions();
     }
 

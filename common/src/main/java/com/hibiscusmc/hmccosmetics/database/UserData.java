@@ -27,6 +27,22 @@ public class UserData {
         this.hiddenReasons = new ArrayList<>();
     }
 
+    public UserData(UserData source) {
+        this.owner = source.owner;
+        this.cosmetics = new HashMap<>(source.cosmetics);
+        this.hiddenReasons = new ArrayList<>(source.hiddenReasons);
+    }
+
+    public static UserData snapshot(CosmeticUser user) {
+        UserData data = new UserData(user.getUniqueId());
+        for (Cosmetic cosmetic : user.getCosmetics()) {
+            org.bukkit.Color color = user.getCosmeticColor(cosmetic.getSlot());
+            data.addCosmetic(cosmetic.getSlot(), cosmetic, color == null ? -1 : color.asRGB());
+        }
+        user.getHiddenReasons().forEach(data::addHiddenReason);
+        return data;
+    }
+
     public void addCosmetic(CosmeticSlot slot, Cosmetic cosmetic, Integer color) {
         cosmetics.put(slot, Map.entry(cosmetic, color));
     }

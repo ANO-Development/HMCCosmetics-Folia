@@ -1,14 +1,32 @@
 import net.minecrell.pluginyml.bukkit.BukkitPluginDescription
+import java.util.zip.ZipFile
 
 plugins {
     id("java")
-    id("com.gradleup.shadow") version "8.3.2"
-    id("xyz.jpenilla.run-paper") version "2.3.1"
+    id("com.gradleup.shadow") version "9.4.1"
+    id("xyz.jpenilla.run-paper") version "3.0.2"
     id("net.minecrell.plugin-yml.bukkit") version "0.6.0"
 }
 
 group = "com.hibiscusmc"
-version = "2.9.2"
+version = "2.9.2-folia.1"
+
+val defaultHibiscusCommonsJar = rootProject.file("../HibiscusCommons/output/HibiscusCommons-0.9.3-folia.1.jar")
+val hibiscusCommonsJar = providers.gradleProperty("hibiscusCommonsJar").map(::file).orElse(defaultHibiscusCommonsJar)
+val verifyHibiscusCommonsDependency = tasks.register("verifyHibiscusCommonsDependency") {
+    group = "verification"
+    inputs.file(hibiscusCommonsJar)
+    doLast {
+        val artifact = hibiscusCommonsJar.get()
+        if (!artifact.isFile) throw GradleException("HibiscusCommons 0.9.3-folia.1 was not found at ${artifact.absolutePath}.")
+        ZipFile(artifact).use { jar ->
+            val descriptor = jar.getInputStream(jar.getEntry("plugin.yml")).bufferedReader().readText()
+            if (!descriptor.contains("version: 0.9.3-folia.1")) {
+                throw GradleException("HMCCosmetics must compile against HibiscusCommons 0.9.3-folia.1 exactly.")
+            }
+        }
+    }
+}
 
 allprojects {
     apply(plugin = "java")
@@ -71,7 +89,8 @@ allprojects {
     dependencies {
         compileOnly(fileTree("${project.rootDir}/lib") { include("*.jar") })
         compileOnly("com.mojang:authlib:1.5.25")
-        compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
+        compileOnly("dev.folia:folia-api:26.2.build.1-beta")
+        compileOnly("net.kyori:examination-api:1.3.0")
         compileOnly("org.jetbrains:annotations:24.1.0")
         compileOnly("me.clip:placeholderapi:2.11.6")
         compileOnly("com.ticxo.modelengine:ModelEngine:R4.0.6")
@@ -87,17 +106,37 @@ allprojects {
         compileOnly("io.github.toxicity188:BetterHud-bukkit-api:1.12") //Platform api
         compileOnly("io.github.toxicity188:BetterCommand:1.3") //BetterCommand library
         //compileOnly("it.unimi.dsi:fastutil:8.5.14")
-        compileOnly("org.projectlombok:lombok:1.18.34")
-        compileOnly("me.lojosho:HibiscusCommons:0.9.3")
+        compileOnly("org.projectlombok:lombok:1.18.44")
+        compileOnly(files(hibiscusCommonsJar))
 
-        annotationProcessor("org.projectlombok:lombok:1.18.36")
-        testCompileOnly("org.projectlombok:lombok:1.18.36")
-        testAnnotationProcessor("org.projectlombok:lombok:1.18.36")
+        annotationProcessor("org.projectlombok:lombok:1.18.44")
+        testCompileOnly("org.projectlombok:lombok:1.18.44")
+        testAnnotationProcessor("org.projectlombok:lombok:1.18.44")
+        testCompileOnly("org.jetbrains:annotations:24.1.0")
+        testImplementation("dev.folia:folia-api:26.2.build.1-beta")
+        testImplementation(files(hibiscusCommonsJar))
         compileOnly("com.nexomc:nexo:1.24.0")
 
         implementation("dev.triumphteam:triumph-gui:3.2.0-SNAPSHOT") {
             exclude("net.kyori") // Already have adventure API
         }
+
+        testImplementation(platform("org.junit:junit-bom:6.0.3"))
+        testImplementation("org.junit.jupiter:junit-jupiter")
+        testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    }
+
+    tasks.withType<Test>().configureEach {
+        useJUnitPlatform()
+    }
+
+    tasks.withType<JavaCompile>().configureEach {
+        dependsOn(rootProject.tasks.named("verifyHibiscusCommonsDependency"))
+    }
+
+    tasks.withType<org.gradle.api.tasks.bundling.AbstractArchiveTask>().configureEach {
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
     }
 
     tasks {
@@ -119,7 +158,7 @@ tasks {
 
     compileJava {
         options.encoding = Charsets.UTF_8.name()
-        options.release.set(21)
+        options.release.set(25)
     }
 
     javadoc {
@@ -132,7 +171,7 @@ tasks {
     }
 
     runServer {
-        minecraftVersion("1.21.11")
+        minecraftVersion("26.2")
 
         downloadPlugins {
             hangar("PlaceholderAPI", "2.12.2")
@@ -166,13 +205,73 @@ tasks {
     build {
         dependsOn(shadowJar)
     }
+
+    register("verifyFoliaSafety") {
+        group = "verification"
+        description = "Rejects APIs that are unsafe on Folia region threads."
+        doLast {
+            val forbidden = linkedMapOf(
+                "legacy Bukkit scheduler" to Regex("Bukkit\\.getScheduler\\(|BukkitRunnable|\\.runTask(?:Later|Timer|Asynchronously)?\\("),
+                "synchronous Bukkit teleport" to Regex("(?:player|entity|modelEntity|getModelEntity\\(\\))\\.teleport\\("),
+                "common ForkJoinPool" to Regex("ForkJoinPool\\.commonPool\\(|parallelStream\\("),
+                "legacy Player packet callback" to Regex("PacketAction\\s+\\w+\\(@NotNull Player player")
+            )
+            val violations = mutableListOf<String>()
+            fileTree("common/src/main/java").matching { include("**/*.java", "**/*.kt") }.files.forEach { source ->
+                source.readLines().forEachIndexed { index, line ->
+                    forbidden.forEach { (name, pattern) ->
+                        if (pattern.containsMatchIn(line)) violations += "${source.relativeTo(projectDir)}:${index + 1}: $name"
+                    }
+                    if ((line.contains("CompletableFuture.runAsync(") || line.contains("CompletableFuture.supplyAsync(")) && !line.contains(", EXECUTOR)")) {
+                        violations += "${source.relativeTo(projectDir)}:${index + 1}: unowned CompletableFuture executor"
+                    }
+                }
+            }
+            if (violations.isNotEmpty()) throw GradleException(violations.joinToString("\n", "Folia safety violations:\n"))
+        }
+    }
+
+    register("verifyFoliaArtifact") {
+        group = "verification"
+        description = "Inspects the release JAR metadata, bytecode, and dependency boundaries."
+        dependsOn(shadowJar)
+        doLast {
+            val artifact = shadowJar.get().archiveFile.get().asFile
+            ZipFile(artifact).use { jar ->
+                val descriptor = jar.getInputStream(jar.getEntry("plugin.yml")).bufferedReader().readText()
+                if (!descriptor.contains("api-version: \"26.2\"")) throw GradleException("plugin.yml does not target API 26.2.")
+                if (!descriptor.contains("folia-supported: true")) throw GradleException("plugin.yml does not declare Folia support.")
+                if (!descriptor.contains("HibiscusCommons")) throw GradleException("plugin.yml does not require HibiscusCommons.")
+
+                val entries = jar.entries().asSequence().toList()
+                if (entries.any { it.name.startsWith("me/lojosho/hibiscuscommons/") })
+                    throw GradleException("HibiscusCommons was accidentally shaded into HMCCosmetics.")
+                entries.filter {
+                    it.name.startsWith("com/hibiscusmc/hmccosmetics/") &&
+                        !it.name.startsWith("com/hibiscusmc/hmccosmetics/shaded/") &&
+                        it.name.endsWith(".class")
+                }.forEach { entry ->
+                    jar.getInputStream(entry).use { input ->
+                        val header = input.readNBytes(8)
+                        if (header.size != 8 || header[6].toInt() != 0 || header[7].toInt() != 69)
+                            throw GradleException("${entry.name} is not Java 25 bytecode.")
+                    }
+                }
+            }
+        }
+    }
+
+    check {
+        dependsOn("verifyFoliaSafety", "verifyFoliaArtifact", ":common:test")
+    }
 }
 
 
 bukkit {
     load = BukkitPluginDescription.PluginLoadOrder.POSTWORLD
     main = "com.hibiscusmc.hmccosmetics.HMCCosmeticsPlugin"
-    apiVersion = "1.20"
+    foliaSupported = true
+    apiVersion = "26.2"
     authors = listOf("LoJoSho")
     depend = listOf("HibiscusCommons")
     softDepend = listOf("Nexo", "BetterHud", "ModelEngine", "Oraxen", "ItemsAdder", "Geary", "HMCColor", "WorldGuard", "MythicMobs", "PlaceholderAPI", "SuperVanish", "PremiumVanish", "LibsDisguises", "Denizen", "MMOItems", "Eco")
@@ -276,10 +375,14 @@ bukkit {
 }
 
 java {
-    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+    toolchain.languageVersion.set(JavaLanguageVersion.of(25))
 
     withJavadocJar()
     withSourcesJar()
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 fun getGitCommitHash(): String {

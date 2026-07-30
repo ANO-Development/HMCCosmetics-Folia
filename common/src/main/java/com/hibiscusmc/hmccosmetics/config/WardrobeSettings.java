@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.stream.Stream;
@@ -106,7 +107,7 @@ public class WardrobeSettings {
     private static boolean preventDamage;
     @Getter
     private static GameMode exitGamemode;
-    private static final HashMap<String, Wardrobe> wardrobes = new HashMap<>();
+    private static volatile Map<String, Wardrobe> wardrobes = Map.of();
     @Getter
     private static String bossbarMessage;
     @Getter
@@ -173,7 +174,7 @@ public class WardrobeSettings {
         transitionStay = transitionNode.node(TRANSITION_STAY_PATH).getInt(2000);
         transitionFadeOut = transitionNode.node(TRANSITION_FADE_OUT_PATH).getInt(2000);
 
-        wardrobes.clear();
+        Map<String, Wardrobe> loadedWardrobes = new HashMap<>();
         File wardrobeFolder = new File(HMCCosmeticsPlugin.getInstance().getDataFolder() + "/wardrobes");
         try (Stream<Path> walkStream = Files.walk(wardrobeFolder.toPath())) {
             walkStream.filter(p -> p.toFile().isFile()).forEach(child -> {
@@ -188,16 +189,17 @@ public class WardrobeSettings {
                         throw new RuntimeException(e);
                     }
                     for (ConfigurationNode wardrobeConfig : wardrobesNode.childrenMap().values()) {
-                        registerWardrobe(wardrobeConfig, child.toFile());
+                        registerWardrobe(wardrobeConfig, child.toFile(), loadedWardrobes);
                     }
                 }
             });
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (Exception exception) {
+            throw new IllegalStateException("Unable to load wardrobes.", exception);
         }
+        wardrobes = Map.copyOf(loadedWardrobes);
     }
 
-    private static void registerWardrobe(@NotNull ConfigurationNode wardrobesNode, @NotNull File file) {
+    private static void registerWardrobe(@NotNull ConfigurationNode wardrobesNode, @NotNull File file, Map<String, Wardrobe> target) {
         String id = wardrobesNode.key().toString();
         try {
             Location npcLocation = LocationSerializer.INSTANCE.deserialize(Location.class, wardrobesNode.node(NPC_LOCATION_PATH));
@@ -214,7 +216,7 @@ public class WardrobeSettings {
             int distance = wardrobesNode.node(DISTANCE_PATH).getInt(-1);
 
             Wardrobe wardrobe = new Wardrobe(id, wardrobeLocation, permission, distance, defaultMenu, file);
-            addWardrobe(wardrobe);
+            target.put(wardrobe.getId(), wardrobe);
         } catch (Exception e) {
             throw new RuntimeException("Unable to load wardrobe " + id, e);
         }
@@ -225,19 +227,23 @@ public class WardrobeSettings {
     }
 
     public static Set<String> getWardrobeNames() {
-        return wardrobes.keySet();
+        return Set.copyOf(wardrobes.keySet());
     }
 
     public static Collection<Wardrobe> getWardrobes() {
-        return wardrobes.values();
+        return Set.copyOf(wardrobes.values());
     }
 
-    public static void addWardrobe(Wardrobe wardrobe) {
-        wardrobes.put(wardrobe.getId(), wardrobe);
+    public static synchronized void addWardrobe(Wardrobe wardrobe) {
+        Map<String, Wardrobe> updated = new HashMap<>(wardrobes);
+        updated.put(wardrobe.getId(), wardrobe);
+        wardrobes = Map.copyOf(updated);
     }
 
-    public static void removeWardrobe(String id) {
-        wardrobes.remove(id);
+    public static synchronized void removeWardrobe(String id) {
+        Map<String, Wardrobe> updated = new HashMap<>(wardrobes);
+        updated.remove(id);
+        wardrobes = Map.copyOf(updated);
     }
 
     /**

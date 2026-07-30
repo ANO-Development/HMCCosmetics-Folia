@@ -3,6 +3,7 @@ package com.hibiscusmc.hmccosmetics.command;
 import com.hibiscusmc.hmccolor.HMCColorConfig;
 import com.hibiscusmc.hmccolor.HMCColorContextKt;
 import com.hibiscusmc.hmccosmetics.HMCCosmeticsPlugin;
+import com.hibiscusmc.hmccosmetics.api.CosmeticUserOperations;
 import com.hibiscusmc.hmccosmetics.config.Settings;
 import com.hibiscusmc.hmccosmetics.config.section.Wardrobe;
 import com.hibiscusmc.hmccosmetics.config.section.WardrobeLocation;
@@ -20,6 +21,7 @@ import com.hibiscusmc.hmccosmetics.util.MessagesUtil;
 import com.hibiscusmc.hmccosmetics.util.HMCCServerUtils;
 import me.lojosho.hibiscuscommons.HibiscusCommonsPlugin;
 import me.lojosho.hibiscuscommons.hooks.Hooks;
+import me.lojosho.hibiscuscommons.util.FoliaScheduler;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
@@ -93,8 +95,11 @@ public class CosmeticCommand implements CommandExecutor {
                     if (!silent) MessagesUtil.sendMessage(sender, "no-permission");
                     return true;
                 }
-                HMCCosmeticsPlugin.setup();
-                if (!silent) MessagesUtil.sendMessage(sender, "reloaded");
+                boolean silentCommand = silent;
+                FoliaScheduler.runGlobal(HMCCosmeticsPlugin.getInstance(), () -> {
+                    HMCCosmeticsPlugin.setup();
+                    if (!silentCommand) sendMessage(sender, "reloaded");
+                });
                 return true;
             }
             case ("apply") -> {
@@ -112,7 +117,6 @@ public class CosmeticCommand implements CommandExecutor {
 
                 if (sender.hasPermission("hmccosmetics.cmd.apply.color")) {
                     if (args.length >= 4) {
-                        // TODO: Add sub-color support somehow... (and make this neater)
                         String textColor = args[3];
                         if (!textColor.contains("#") && Hooks.isActiveHook("HMCColor")) {
                             HMCColorConfig.Colors colors = HMCColorContextKt.getHmcColor().getConfig().getColors().get(textColor);
@@ -142,35 +146,32 @@ public class CosmeticCommand implements CommandExecutor {
                     return true;
                 }
 
-                CosmeticUser user = CosmeticUsers.getUser(player);
+                Player target = player;
+                Color targetColor = color;
+                boolean consoleCommand = console;
+                boolean silentCommand = silent;
+                if (!CosmeticUserOperations.execute(target.getUniqueId(), user -> {
+                    if (!user.canEquipCosmetic(cosmetic) && !consoleCommand) {
+                        if (!silentCommand) MessagesUtil.sendMessage(target, "no-cosmetic-permission");
+                        return;
+                    }
 
-                if (user == null) {
+                    ItemStack cosmeticItem = cosmetic.getItem();
+                    Component itemName = Component.text(cosmetic.getId());
+                    if (HibiscusCommonsPlugin.isOnPaper() && cosmeticItem != null) itemName = cosmeticItem.effectiveName();
+                    TagResolver placeholders = TagResolver.resolver(
+                        Placeholder.parsed("cosmetic", cosmetic.getId()),
+                        Placeholder.parsed("player", target.getName()),
+                        Placeholder.parsed("cosmeticslot", cosmetic.getSlot().toString()),
+                        Placeholder.component("cosmetic_item_name", itemName)
+                    );
+
+                    if (!silentCommand) MessagesUtil.sendMessage(target, "equip-cosmetic", placeholders);
+                    user.addCosmetic(cosmetic, targetColor);
+                    user.updateCosmetic(cosmetic.getSlot());
+                })) {
                     if (!silent) MessagesUtil.sendMessage(sender, "invalid-player");
-                    return true;
                 }
-
-                if (!user.canEquipCosmetic(cosmetic) && !console) {
-                    if (!silent) MessagesUtil.sendMessage(player, "no-cosmetic-permission");
-                    return true;
-                }
-
-                final ItemStack cosmeticItem = cosmetic.getItem();
-                Component itemName = Component.text(cosmetic.getId());
-                if (HibiscusCommonsPlugin.isOnPaper() && cosmeticItem != null) {
-                    itemName = cosmeticItem.effectiveName();
-                }
-
-                TagResolver placeholders =
-                        TagResolver.resolver(Placeholder.parsed("cosmetic", cosmetic.getId()),
-                                TagResolver.resolver(Placeholder.parsed("player", player.getName())),
-                                TagResolver.resolver(Placeholder.parsed("cosmeticslot", cosmetic.getSlot().toString())),
-                                TagResolver.resolver(Placeholder.component("cosmetic_item_name", itemName))
-                        );
-
-                if (!silent) MessagesUtil.sendMessage(player, "equip-cosmetic", placeholders);
-
-                user.addCosmetic(cosmetic, color);
-                user.updateCosmetic(cosmetic.getSlot());
                 return true;
             }
             case ("unapply") -> {
@@ -193,45 +194,41 @@ public class CosmeticCommand implements CommandExecutor {
                     return true;
                 }
 
-                CosmeticUser user = CosmeticUsers.getUser(player);
-
-                Set<CosmeticSlot> cosmeticSlots;
-
-                if (args[1].equalsIgnoreCase("all")) {
-                    cosmeticSlots = user.getSlotsWithCosmetics();
-                } else {
-                    String rawSlot = args[1].toUpperCase();
-                    if (!CosmeticSlot.contains(rawSlot)) {
-                        if (!silent) MessagesUtil.sendMessage(sender, "invalid-slot");
-                        return true;
-                    }
-                    cosmeticSlots = Set.of(CosmeticSlot.valueOf(rawSlot));
+                String requestedSlot = args[1];
+                if (!requestedSlot.equalsIgnoreCase("all") && !CosmeticSlot.contains(requestedSlot)) {
+                    if (!silent) MessagesUtil.sendMessage(sender, "invalid-slot");
+                    return true;
                 }
 
-                for (CosmeticSlot cosmeticSlot : cosmeticSlots) {
-                    final Cosmetic cosmetic = user.getCosmetic(cosmeticSlot);
-                    if (cosmetic == null) {
-                        if (!silent) MessagesUtil.sendMessage(sender, "no-cosmetic-slot");
-                        continue;
+                Player target = player;
+                boolean silentCommand = silent;
+                CosmeticUserOperations.execute(target.getUniqueId(), user -> {
+                    Set<CosmeticSlot> cosmeticSlots = requestedSlot.equalsIgnoreCase("all")
+                        ? user.getSlotsWithCosmetics()
+                        : Set.of(CosmeticSlot.valueOf(requestedSlot));
+
+                    for (CosmeticSlot cosmeticSlot : cosmeticSlots) {
+                        Cosmetic cosmetic = user.getCosmetic(cosmeticSlot);
+                        if (cosmetic == null) {
+                            if (!silentCommand) sendMessage(sender, "no-cosmetic-slot");
+                            continue;
+                        }
+
+                        ItemStack cosmeticItem = cosmetic.getItem();
+                        Component itemName = Component.text(cosmetic.getId());
+                        if (HibiscusCommonsPlugin.isOnPaper() && cosmeticItem != null) itemName = cosmeticItem.effectiveName();
+                        TagResolver placeholders = TagResolver.resolver(
+                            Placeholder.parsed("cosmetic", cosmetic.getId()),
+                            Placeholder.parsed("player", target.getName()),
+                            Placeholder.parsed("cosmeticslot", cosmeticSlot.toString()),
+                            Placeholder.component("cosmetic_item_name", itemName)
+                        );
+
+                        if (!silentCommand) MessagesUtil.sendMessage(target, "unequip-cosmetic", placeholders);
+                        user.removeCosmeticSlot(cosmeticSlot);
+                        user.updateCosmetic(cosmeticSlot);
                     }
-
-                    final ItemStack cosmeticItem = cosmetic.getItem();
-                    Component itemName = Component.text(cosmetic.getId());
-                    if (HibiscusCommonsPlugin.isOnPaper() && cosmeticItem != null) {
-                        itemName = cosmeticItem.effectiveName();
-                    }
-
-                    TagResolver placeholders =
-                            TagResolver.resolver(Placeholder.parsed("cosmetic", cosmetic.getId()),
-                                    TagResolver.resolver(Placeholder.parsed("player", player.getName())),
-                                    TagResolver.resolver(Placeholder.parsed("cosmeticslot", cosmeticSlot.toString())),
-                                    TagResolver.resolver(Placeholder.component("cosmetic_item_name", itemName)));
-
-                    if (!silent) MessagesUtil.sendMessage(player, "unequip-cosmetic", placeholders);
-
-                    user.removeCosmeticSlot(cosmeticSlot);
-                    user.updateCosmetic(cosmeticSlot);
-                }
+                });
                 return true;
             }
             case ("wardrobes") -> {
@@ -262,13 +259,10 @@ public class CosmeticCommand implements CommandExecutor {
                 }
                 Wardrobe wardrobe = WardrobeSettings.getWardrobe(args[1]);
 
-                CosmeticUser user = CosmeticUsers.getUser(player);
-
-                if (user.isInWardrobe()) {
-                    user.leaveWardrobe(false);
-                } else {
-                    user.enterWardrobe(wardrobe, false);
-                }
+                CosmeticUserOperations.execute(player.getUniqueId(), user -> {
+                    if (user.isInWardrobe()) user.leaveWardrobe(false);
+                    else user.enterWardrobe(wardrobe, false);
+                });
                 return true;
             }
             // cosmetic menu exampleMenu playerName
@@ -288,9 +282,7 @@ public class CosmeticCommand implements CommandExecutor {
                 if (sender.hasPermission("hmccosmetics.cmd.menu.other")) {
                     if (args.length >= 3) player = Bukkit.getPlayer(args[2]);
                 }
-                CosmeticUser user = CosmeticUsers.getUser(player);
-
-                if (user == null) {
+                if (player == null) {
                     if (!silent) MessagesUtil.sendMessage(sender, "invalid-player");
                     return true;
                 }
@@ -300,7 +292,8 @@ public class CosmeticCommand implements CommandExecutor {
                     return true;
                 }
 
-                menu.openMenu(user);
+                Menu targetMenu = menu;
+                CosmeticUserOperations.execute(player.getUniqueId(), targetMenu::openMenu);
                 return true;
             }
             case ("dataclear") -> {
@@ -451,7 +444,7 @@ public class CosmeticCommand implements CommandExecutor {
 
                 CosmeticUser user = CosmeticUsers.getUser(player);
                 if (!silent) MessagesUtil.sendMessage(sender, "hide-cosmetic");
-                user.hideCosmetics(CosmeticUser.HiddenReason.COMMAND);
+                CosmeticUserOperations.execute(player.getUniqueId(), targetUser -> targetUser.hideCosmetics(CosmeticUser.HiddenReason.COMMAND));
                 return true;
             }
             case ("show") -> {
@@ -470,10 +463,8 @@ public class CosmeticCommand implements CommandExecutor {
                     return true;
                 }
 
-                CosmeticUser user = CosmeticUsers.getUser(player);
-
                 if (!silent) MessagesUtil.sendMessage(sender, "show-cosmetic");
-                user.showCosmetics(CosmeticUser.HiddenReason.COMMAND);
+                CosmeticUserOperations.execute(player.getUniqueId(), targetUser -> targetUser.showCosmetics(CosmeticUser.HiddenReason.COMMAND));
                 return true;
             }
             case ("toggle") -> {
@@ -492,14 +483,16 @@ public class CosmeticCommand implements CommandExecutor {
                     return true;
                 }
 
-                CosmeticUser user = CosmeticUsers.getUser(player);
-                if (user.isHidden(CosmeticUser.HiddenReason.COMMAND)) {
-                    if (!silent) MessagesUtil.sendMessage(sender, "show-cosmetic");
-                    user.showCosmetics(CosmeticUser.HiddenReason.COMMAND);
-                } else {
-                    if (!silent) MessagesUtil.sendMessage(sender, "hide-cosmetic");
-                    user.hideCosmetics(CosmeticUser.HiddenReason.COMMAND);
-                }
+                boolean silentCommand = silent;
+                CosmeticUserOperations.execute(player.getUniqueId(), targetUser -> {
+                    if (targetUser.isHidden(CosmeticUser.HiddenReason.COMMAND)) {
+                        if (!silentCommand) sendMessage(sender, "show-cosmetic");
+                        targetUser.showCosmetics(CosmeticUser.HiddenReason.COMMAND);
+                    } else {
+                        if (!silentCommand) sendMessage(sender, "hide-cosmetic");
+                        targetUser.hideCosmetics(CosmeticUser.HiddenReason.COMMAND);
+                    }
+                });
                 return true;
             }
             case ("debug") -> {
@@ -526,13 +519,23 @@ public class CosmeticCommand implements CommandExecutor {
                     return true;
                 }
                 if (args[1].equalsIgnoreCase("true")) {
-                    Settings.setAllPlayersHidden(true);
-                    for (CosmeticUser user : CosmeticUsers.values()) user.hideCosmetics(CosmeticUser.HiddenReason.DISABLED);
-                    if (!silent) MessagesUtil.sendMessage(sender, "disabled-all");
+                    boolean silentCommand = silent;
+                    FoliaScheduler.runGlobal(HMCCosmeticsPlugin.getInstance(), () -> {
+                        Settings.setAllPlayersHidden(true);
+                        for (CosmeticUser user : CosmeticUsers.values()) {
+                            CosmeticUserOperations.execute(user.getUniqueId(), targetUser -> targetUser.hideCosmetics(CosmeticUser.HiddenReason.DISABLED));
+                        }
+                        if (!silentCommand) sendMessage(sender, "disabled-all");
+                    });
                 } else if (args[1].equalsIgnoreCase("false")) {
-                    Settings.setAllPlayersHidden(false);
-                    for (CosmeticUser user : CosmeticUsers.values()) user.showCosmetics(CosmeticUser.HiddenReason.DISABLED);
-                    if (!silent) MessagesUtil.sendMessage(sender, "enabled-all");
+                    boolean silentCommand = silent;
+                    FoliaScheduler.runGlobal(HMCCosmeticsPlugin.getInstance(), () -> {
+                        Settings.setAllPlayersHidden(false);
+                        for (CosmeticUser user : CosmeticUsers.values()) {
+                            CosmeticUserOperations.execute(user.getUniqueId(), targetUser -> targetUser.showCosmetics(CosmeticUser.HiddenReason.DISABLED));
+                        }
+                        if (!silentCommand) sendMessage(sender, "enabled-all");
+                    });
                 } else {
                     if (!silent) MessagesUtil.sendMessage(sender, "invalid-args");
                 }
@@ -551,8 +554,7 @@ public class CosmeticCommand implements CommandExecutor {
                     if (!silent) MessagesUtil.sendMessage(sender, "invalid-player");
                     return true;
                 }
-                CosmeticUser user = CosmeticUsers.getUser(player);
-                sender.sendMessage(user.getHiddenReasons().toString());
+                CosmeticUserOperations.execute(player.getUniqueId(), user -> sendRawMessage(sender, user.getHiddenReasons().toString()));
                 return true;
             }
 
@@ -568,11 +570,26 @@ public class CosmeticCommand implements CommandExecutor {
                     if (!silent) MessagesUtil.sendMessage(sender, "invalid-player");
                     return true;
                 }
-                CosmeticUser user = CosmeticUsers.getUser(player);
-                user.clearHiddenReasons();
+                CosmeticUserOperations.execute(player.getUniqueId(), CosmeticUser::clearHiddenReasons);
                 return true;
             }
         }
         return true;
+    }
+
+    private void sendMessage(CommandSender sender, String key) {
+        if (sender instanceof Player player) {
+            FoliaScheduler.runEntity(HMCCosmeticsPlugin.getInstance(), player, () -> MessagesUtil.sendMessage(player, key), null);
+            return;
+        }
+        FoliaScheduler.runGlobal(HMCCosmeticsPlugin.getInstance(), () -> MessagesUtil.sendMessage(sender, key));
+    }
+
+    private void sendRawMessage(CommandSender sender, String message) {
+        if (sender instanceof Player player) {
+            FoliaScheduler.runEntity(HMCCosmeticsPlugin.getInstance(), player, () -> player.sendMessage(message), null);
+            return;
+        }
+        FoliaScheduler.runGlobal(HMCCosmeticsPlugin.getInstance(), () -> sender.sendMessage(message));
     }
 }

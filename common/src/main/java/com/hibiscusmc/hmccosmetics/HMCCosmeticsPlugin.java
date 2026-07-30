@@ -24,6 +24,7 @@ import com.hibiscusmc.hmccosmetics.hooks.worldguard.WGHook;
 import com.hibiscusmc.hmccosmetics.hooks.worldguard.WGListener;
 import com.hibiscusmc.hmccosmetics.listener.*;
 import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketInterface;
+import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshots;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUsers;
 import com.hibiscusmc.hmccosmetics.util.search.PlayerSearchManager;
@@ -99,8 +100,8 @@ public final class HMCCosmeticsPlugin extends HibiscusPlugin {
                     "database-settings", "wardrobe.wardrobes", "debug-mode", "wardrobe.viewer-location", "wardrobe.npc-location", "wardrobe.wardrobe-location", "wardrobe.leave-location");
             CommentedConfiguration.loadConfiguration(messageFile).syncWithConfig(messageFile, getInstance().getResource("messages.yml"));
             CommentedConfiguration.loadConfiguration(translationFile).syncWithConfig(translationFile, getInstance().getResource("translations.yml"));
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (Exception exception) {
+            throw new IllegalStateException("Unable to synchronize HMCCosmetics configuration files.", exception);
         }
 
         // Move this over to Hibiscus Commons later
@@ -170,14 +171,8 @@ public final class HMCCosmeticsPlugin extends HibiscusPlugin {
     @Override
     public void onEnd() {
         // Plugin shutdown logic
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            CosmeticUser user = CosmeticUsers.getUser(player);
-            if (user == null) continue;
-            if (user.isInWardrobe()) {
-                user.leaveWardrobe(true);
-            }
-            Database.save(user);
-        }
+        Database.shutdown();
+        CosmeticPacketSnapshots.clear();
     }
 
     public static HMCCosmeticsPlugin getInstance() {

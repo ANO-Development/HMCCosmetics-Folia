@@ -16,7 +16,9 @@ import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticArmorType;
 import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticBackpackType;
 import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticBalloonType;
 import com.hibiscusmc.hmccosmetics.database.UserData;
+import com.hibiscusmc.hmccosmetics.database.Database;
 import com.hibiscusmc.hmccosmetics.gui.Menus;
+import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshots;
 import com.hibiscusmc.hmccosmetics.user.manager.UserBackpackManager;
 import com.hibiscusmc.hmccosmetics.user.manager.UserBalloonManager;
 import com.hibiscusmc.hmccosmetics.user.manager.UserWardrobeManager;
@@ -27,7 +29,9 @@ import lombok.Getter;
 import lombok.Setter;
 import me.lojosho.hibiscuscommons.hooks.Hooks;
 import me.lojosho.hibiscuscommons.nms.NMSHandlers;
+import me.lojosho.hibiscuscommons.util.FoliaScheduler;
 import me.lojosho.hibiscuscommons.util.InventoryUtils;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.Location;
@@ -41,7 +45,6 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitTask;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -52,7 +55,7 @@ import java.util.logging.Level;
 public class CosmeticUser implements CosmeticHolder {
     @Getter
     private final UUID uniqueId;
-    private int taskId = -1;
+    private ScheduledTask tickingTask;
     private final HashMap<CosmeticSlot, Cosmetic> playerCosmetics = new HashMap<>();
     private UserWardrobeManager userWardrobeManager;
     private UserBalloonManager userBalloonManager;
@@ -110,6 +113,7 @@ public class CosmeticUser implements CosmeticHolder {
             this.applyHiddenState(userData.getHiddenReasons());
         }
 
+        refreshPacketSnapshot();
         return this;
     }
 
@@ -175,7 +179,7 @@ public class CosmeticUser implements CosmeticHolder {
     /**
      * Start ticking against the {@link CosmeticUser}.
      * @implNote The tick-rate is determined by the tick period specified in the configuration, if it is less-than or equal to 0
-     * there will be no {@link BukkitTask} created, and the {@link CosmeticUser#taskId} will be -1
+     * no scheduled task will be created.
      */
     public final void startTicking() {
         int tickPeriod = Settings.getTickPeriod();
@@ -184,8 +188,9 @@ public class CosmeticUser implements CosmeticHolder {
             return;
         }
 
-        final BukkitTask task = Bukkit.getScheduler().runTaskTimer(HMCCosmeticsPlugin.getInstance(), this::tick, 0, tickPeriod);
-        this.taskId = task.getTaskId();
+        Player player = getPlayer();
+        if (player == null) return;
+        this.tickingTask = FoliaScheduler.runEntityAtFixedRate(HMCCosmeticsPlugin.getInstance(), player, this::tick, () -> this.tickingTask = null, 1L, tickPeriod);
     }
 
     /**
@@ -210,9 +215,8 @@ public class CosmeticUser implements CosmeticHolder {
     }
 
     public void destroy() {
-        if(this.taskId != -1) { // ensure we're actually ticking this user.
-            Bukkit.getScheduler().cancelTask(taskId);
-        }
+        if (tickingTask != null) tickingTask.cancel();
+        tickingTask = null;
 
         despawnBackpack();
         despawnBalloon();
@@ -259,6 +263,7 @@ public class CosmeticUser implements CosmeticHolder {
         // API
         PlayerCosmeticPostEquipEvent postEquipEvent = new PlayerCosmeticPostEquipEvent(this, cosmetic);
         Bukkit.getPluginManager().callEvent(postEquipEvent);
+        refreshPacketSnapshot();
     }
 
     /**
@@ -295,6 +300,7 @@ public class CosmeticUser implements CosmeticHolder {
         colors.remove(slot);
         playerCosmetics.remove(slot);
         removeArmor(slot);
+        refreshPacketSnapshot();
     }
 
     @Override
@@ -319,6 +325,7 @@ public class CosmeticUser implements CosmeticHolder {
         }
 
         behavior.dispatchUpdate(this);
+        refreshPacketSnapshot();
         return true;
     }
 
@@ -343,6 +350,7 @@ public class CosmeticUser implements CosmeticHolder {
     }
 
     public void updateCosmetic() {
+        refreshPacketSnapshot();
         MessagesUtil.sendDebugMessages("updateCosmetic (All) - start");
         final HashMap<EquipmentSlot, ItemStack> items = new HashMap<>();
 
@@ -372,6 +380,7 @@ public class CosmeticUser implements CosmeticHolder {
             NMSHandlers.getHandler().getPacketBuilder().buildEntityEquipmentSlotUpdatePacket(entity.getEntityId(), items).sendPacket(HMCCPacketManager.getViewers(entity.getLocation()));
             MessagesUtil.sendDebugMessages("updateCosmetic (All) - end - " + items.size());
         }
+        refreshPacketSnapshot();
     }
 
     public ItemStack getUserCosmeticItem(@NotNull CosmeticSlot slot) {
@@ -547,10 +556,10 @@ public class CosmeticUser implements CosmeticHolder {
                     WardrobeSettings.getTransitionStay(),
                     WardrobeSettings.getTransitionFadeOut()
             );
-            Bukkit.getScheduler().runTaskLater(HMCCosmeticsPlugin.getInstance(), () -> {
+            FoliaScheduler.runEntityLater(HMCCosmeticsPlugin.getInstance(), getPlayer(), () -> {
                 userWardrobeManager.end();
                 userWardrobeManager = null;
-            }, WardrobeSettings.getTransitionDelay());
+            }, () -> userWardrobeManager = null, WardrobeSettings.getTransitionDelay());
         } else {
             userWardrobeManager.end();
             userWardrobeManager = null;
@@ -590,8 +599,8 @@ public class CosmeticUser implements CosmeticHolder {
 
         org.bukkit.entity.Entity entity = getEntity();
 
-        UserBalloonManager userBalloonManager1 = new UserBalloonManager(this, entity.getLocation());
-        userBalloonManager1.getModelEntity().teleport(entity.getLocation().add(cosmeticBalloonType.getBalloonOffset()));
+        Location balloonLocation = entity.getLocation().add(cosmeticBalloonType.getBalloonOffset());
+        UserBalloonManager userBalloonManager1 = new UserBalloonManager(this, balloonLocation);
 
         userBalloonManager1.spawnModel(cosmeticBalloonType, getCosmeticColor(cosmeticBalloonType.getSlot()));
         userBalloonManager1.addPlayerToModel(this, cosmeticBalloonType, getCosmeticColor(cosmeticBalloonType.getSlot()));
@@ -682,18 +691,22 @@ public class CosmeticUser implements CosmeticHolder {
     public void hidePlayer() {
         Player player = getPlayer();
         if (player == null) return;
-        for (final Player p : Bukkit.getOnlinePlayers()) {
-            p.hidePlayer(HMCCosmeticsPlugin.getInstance(), player);
-            player.hidePlayer(HMCCosmeticsPlugin.getInstance(), p);
+        HMCCosmeticsPlugin plugin = HMCCosmeticsPlugin.getInstance();
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            if (viewer.getUniqueId().equals(player.getUniqueId())) continue;
+            player.hidePlayer(plugin, viewer);
+            FoliaScheduler.runEntity(plugin, viewer, () -> viewer.hidePlayer(plugin, player), null);
         }
     }
 
     public void showPlayer() {
         Player player = getPlayer();
         if (player == null) return;
-        for (final Player p : Bukkit.getOnlinePlayers()) {
-            p.showPlayer(HMCCosmeticsPlugin.getInstance(), player);
-            player.showPlayer(HMCCosmeticsPlugin.getInstance(), p);
+        HMCCosmeticsPlugin plugin = HMCCosmeticsPlugin.getInstance();
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            if (viewer.getUniqueId().equals(player.getUniqueId())) continue;
+            player.showPlayer(plugin, viewer);
+            FoliaScheduler.runEntity(plugin, viewer, () -> viewer.showPlayer(plugin, player), null);
         }
     }
 
@@ -723,7 +736,10 @@ public class CosmeticUser implements CosmeticHolder {
      * @param reason
      */
     public void silentlyAddHideFlag(@NotNull HiddenReason reason) {
-        if (!hiddenReason.contains(reason)) hiddenReason.add(reason);
+        if (!hiddenReason.contains(reason)) {
+            hiddenReason.add(reason);
+            refreshPacketSnapshot();
+        }
     }
 
     public void showCosmetics(@NotNull HiddenReason reason) {
@@ -764,11 +780,17 @@ public class CosmeticUser implements CosmeticHolder {
     }
 
     public @NotNull List<HiddenReason> getHiddenReasons() {
-        return hiddenReason;
+        return List.copyOf(hiddenReason);
     }
 
     public void clearHiddenReasons() {
         hiddenReason.clear();
+        refreshPacketSnapshot();
+    }
+
+    public void refreshPacketSnapshot() {
+        CosmeticPacketSnapshots.publish(this);
+        Database.capture(this);
     }
 
     public enum HiddenReason {
