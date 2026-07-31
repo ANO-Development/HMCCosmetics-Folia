@@ -19,6 +19,7 @@ import com.hibiscusmc.hmccosmetics.util.packets.HMCCPacketManager;
 import me.lojosho.hibiscuscommons.api.events.*;
 import me.lojosho.hibiscuscommons.util.FoliaScheduler;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
@@ -29,6 +30,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.*;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.*;
@@ -51,6 +53,7 @@ public class PlayerGameListener implements Listener {
         }
 
         if (!(event.getWhoClicked() instanceof Player player)) return;
+        if (player.getGameMode() == GameMode.CREATIVE) return;
         if (event.getView().getTopInventory().getType() != InventoryType.CRAFTING) return;
 
         CosmeticPacketSnapshot snapshot = CosmeticPacketSnapshots.get(player.getUniqueId());
@@ -299,6 +302,7 @@ public class PlayerGameListener implements Listener {
     public void onPlayerGamemodeSwitch(PlayerGameModeChangeEvent event) {
         CosmeticUser user = CosmeticUsers.getUser(event.getPlayer());
         if (user == null) return;
+        user.finishCreativeInventoryEdit();
         if (user.isInWardrobe()) user.leaveWardrobe(true);
 
         if (Settings.isDisabledGamemodesEnabled()) {
@@ -329,8 +333,25 @@ public class PlayerGameListener implements Listener {
             CosmeticUser currentUser = CosmeticUsers.getUser(player);
             if (currentUser == null) return;
 
-            currentUser.updateCosmetic();
             player.updateInventory();
+            currentUser.updateCosmetic();
+        }, null, 1L);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) return;
+        CosmeticUser user = CosmeticUsers.getUser(player);
+        if (user == null || player.getGameMode() != GameMode.CREATIVE) return;
+
+        user.finishCreativeInventoryEdit();
+        FoliaScheduler.runEntityLater(HMCCosmeticsPlugin.getInstance(), player, () -> {
+            CosmeticUser currentUser = CosmeticUsers.getUser(player);
+            if (currentUser == null || player.getGameMode() != GameMode.CREATIVE) return;
+
+            CosmeticPacketSnapshots.publish(currentUser);
+            player.updateInventory();
+            currentUser.updateCosmetic();
         }, null, 1L);
     }
 

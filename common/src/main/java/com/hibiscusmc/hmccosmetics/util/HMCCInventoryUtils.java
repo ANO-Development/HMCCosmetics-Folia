@@ -2,6 +2,7 @@ package com.hibiscusmc.hmccosmetics.util;
 
 import com.hibiscusmc.hmccosmetics.HMCCosmeticsPlugin;
 import com.hibiscusmc.hmccosmetics.cosmetic.CosmeticSlot;
+import me.lojosho.hibiscuscommons.util.InventoryUtils;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -119,14 +120,24 @@ public class HMCCInventoryUtils {
     }
 
     public static boolean isCosmeticItem(ItemStack itemStack) {
-        if (itemStack == null) return false;
-        itemStack = itemStack.clone();
-        if (!itemStack.hasItemMeta()) return false;
-        return itemStack.getItemMeta().getPersistentDataContainer().has(getCosmeticKey(), PersistentDataType.STRING);
+        return getCosmeticId(itemStack) != null;
+    }
+
+    public static @Nullable String getCosmeticId(@Nullable ItemStack itemStack) {
+        return getPersistentString(itemStack, getCosmeticKey());
+    }
+
+    public static @Nullable String getCosmeticOwner(@Nullable ItemStack itemStack) {
+        return getPersistentString(itemStack, InventoryUtils.getOwnerKey());
     }
 
     public static NamespacedKey getCosmeticKey() {
         return new NamespacedKey(HMCCosmeticsPlugin.getInstance(), "cosmetic");
+    }
+
+    private static @Nullable String getPersistentString(@Nullable ItemStack itemStack, @NotNull NamespacedKey key) {
+        if (itemStack == null || !itemStack.hasItemMeta()) return null;
+        return itemStack.getItemMeta().getPersistentDataContainer().get(key, PersistentDataType.STRING);
     }
 
     /**

@@ -65,6 +65,8 @@ public class CosmeticUser implements CosmeticHolder {
     // Cosmetic Settings/Toggles
     private final ArrayList<HiddenReason> hiddenReason = new ArrayList<>();
     private final HashMap<CosmeticSlot, Color> colors = new HashMap<>();
+    private boolean creativeInventoryEditing;
+    private int creativeInventoryRevision;
 
     @Getter @Setter
     @ApiStatus.Internal
@@ -786,6 +788,32 @@ public class CosmeticUser implements CosmeticHolder {
     public void clearHiddenReasons() {
         hiddenReason.clear();
         refreshPacketSnapshot();
+    }
+
+    @ApiStatus.Internal
+    public boolean beginCreativeInventoryEdit(int expectedRevision) {
+        if (creativeInventoryEditing || creativeInventoryRevision != expectedRevision) return false;
+        creativeInventoryEditing = true;
+        return true;
+    }
+
+    @ApiStatus.Internal
+    public boolean finishCreativeInventoryEdit() {
+        creativeInventoryRevision++;
+        if (!creativeInventoryEditing) return false;
+
+        creativeInventoryEditing = false;
+        return true;
+    }
+
+    @ApiStatus.Internal
+    public boolean isCreativeInventoryEditing() {
+        return creativeInventoryEditing;
+    }
+
+    @ApiStatus.Internal
+    public int getCreativeInventoryRevision() {
+        return creativeInventoryRevision;
     }
 
     public void refreshPacketSnapshot() {

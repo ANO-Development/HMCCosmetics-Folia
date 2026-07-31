@@ -21,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,10 +34,14 @@ public final class CosmeticPacketSnapshot {
     private final int entityId;
     private final boolean inWardrobe;
     private final boolean wardrobeRunning;
+    private final boolean creativeMode;
+    private final int creativeInventoryRevision;
     private final boolean hidden;
     private final boolean preventOffhandSwapping;
     private final boolean interceptPassengerPackets;
     private final Map<Integer, ItemStack> containerItems;
+    private final Map<Integer, ItemStack> virtualEquipmentItems;
+    private final Set<String> virtualCosmeticIds;
     private final Map<EquipmentSlot, ItemStack> equipmentItems;
     private final Map<EquipmentSlot, ItemStack> ownerEquipmentItems;
     private final Set<CosmeticSlot> equippedSlots;
@@ -46,9 +51,11 @@ public final class CosmeticPacketSnapshot {
     private final List<Integer> backpackEntityIds;
     private final boolean firstPersonBackpack;
 
-    CosmeticPacketSnapshot(UUID playerId, UUID worldId, int entityId, boolean inWardrobe, boolean wardrobeRunning, boolean hidden,
+    CosmeticPacketSnapshot(UUID playerId, UUID worldId, int entityId, boolean inWardrobe, boolean wardrobeRunning,
+                           boolean creativeMode, int creativeInventoryRevision, boolean hidden,
                            boolean preventOffhandSwapping, boolean interceptPassengerPackets,
-                           Map<Integer, ItemStack> containerItems, Map<EquipmentSlot, ItemStack> equipmentItems,
+                           Map<Integer, ItemStack> containerItems, Map<Integer, ItemStack> virtualEquipmentItems,
+                           Set<String> virtualCosmeticIds, Map<EquipmentSlot, ItemStack> equipmentItems,
                            Map<EquipmentSlot, ItemStack> ownerEquipmentItems, Set<CosmeticSlot> equippedSlots,
                            ItemStack mainHand, boolean invisible, int backpackEntityId,
                            List<Integer> backpackEntityIds, boolean firstPersonBackpack) {
@@ -57,10 +64,14 @@ public final class CosmeticPacketSnapshot {
         this.entityId = entityId;
         this.inWardrobe = inWardrobe;
         this.wardrobeRunning = wardrobeRunning;
+        this.creativeMode = creativeMode;
+        this.creativeInventoryRevision = creativeInventoryRevision;
         this.hidden = hidden;
         this.preventOffhandSwapping = preventOffhandSwapping;
         this.interceptPassengerPackets = interceptPassengerPackets;
         this.containerItems = cloneItems(containerItems);
+        this.virtualEquipmentItems = cloneItems(virtualEquipmentItems);
+        this.virtualCosmeticIds = Set.copyOf(virtualCosmeticIds);
         this.equipmentItems = cloneEquipment(equipmentItems);
         this.ownerEquipmentItems = cloneEquipment(ownerEquipmentItems);
         this.equippedSlots = Set.copyOf(equippedSlots);
@@ -88,9 +99,13 @@ public final class CosmeticPacketSnapshot {
     private static CosmeticPacketSnapshot capture(@NotNull CosmeticUser user, @NotNull Player player, @NotNull GameMode gameMode) {
         Location location = player.getLocation();
         boolean inWardrobe = user.isInWardrobe();
+        boolean hidden = user.isHidden();
+        boolean creativeInventoryEditing = gameMode == GameMode.CREATIVE && user.isCreativeInventoryEditing();
         UserWardrobeManager wardrobe = user.getWardrobeManager();
         boolean wardrobeRunning = wardrobe != null && wardrobe.getWardrobeStatus() == UserWardrobeManager.WardrobeStatus.RUNNING;
         Map<Integer, ItemStack> containerItems = new HashMap<>();
+        Map<Integer, ItemStack> virtualEquipmentItems = new HashMap<>();
+        Set<String> virtualCosmeticIds = new HashSet<>();
         Map<EquipmentSlot, ItemStack> equipmentItems = new EnumMap<>(EquipmentSlot.class);
         Map<EquipmentSlot, ItemStack> ownerEquipmentItems = new EnumMap<>(EquipmentSlot.class);
 
@@ -106,9 +121,18 @@ public final class CosmeticPacketSnapshot {
                 if (emptyRequired && !physicalSlotEmpty) continue;
 
                 ItemStack cosmeticItem = user.getUserCosmeticItem(armorType);
-                if (shouldVirtualizeContainerItem(gameMode, physicalSlotEmpty)) {
-                    containerItems.put(HMCCInventoryUtils.getPacketArmorSlot(equipmentSlot), cosmeticItem);
+                int packetSlot = HMCCInventoryUtils.getPacketArmorSlot(equipmentSlot);
+                if (packetSlot >= 0 && shouldVirtualizeContainerItem(gameMode, physicalSlotEmpty)) {
+                    containerItems.put(packetSlot, cosmeticItem);
+                }
+                boolean renderCosmeticForOwner = !hidden && !cosmeticItem.getType().isAir()
+                    && shouldRenderCosmeticForOwner(gameMode, physicalSlotEmpty, creativeInventoryEditing);
+                if (renderCosmeticForOwner) {
                     ownerEquipmentItems.put(equipmentSlot, cosmeticItem);
+                    if (packetSlot >= 0) {
+                        virtualEquipmentItems.put(packetSlot, cosmeticItem);
+                        virtualCosmeticIds.add(cosmetic.getId());
+                    }
                 } else {
                     ownerEquipmentItems.put(equipmentSlot, physicalItem);
                 }
@@ -123,14 +147,20 @@ public final class CosmeticPacketSnapshot {
         List<Integer> backpackEntityIds = backpack == null ? List.of() : List.copyOf(backpack.getEntityManager().getIds());
 
         return new CosmeticPacketSnapshot(user.getUniqueId(), location.getWorld().getUID(), player.getEntityId(), inWardrobe,
-            wardrobeRunning, user.isHidden(), Settings.isPreventOffhandSwapping(), Settings.isBackpackInterceptPassengerPacket(),
-            containerItems, equipmentItems, ownerEquipmentItems, user.getSlotsWithCosmetics(),
+            wardrobeRunning, gameMode == GameMode.CREATIVE, user.getCreativeInventoryRevision(), hidden,
+            Settings.isPreventOffhandSwapping(), Settings.isBackpackInterceptPassengerPacket(), containerItems,
+            virtualEquipmentItems, virtualCosmeticIds, equipmentItems, ownerEquipmentItems, user.getSlotsWithCosmetics(),
             player.getInventory().getItemInMainHand(), player.isInvisible(), backpackEntityId,
             backpackEntityIds, firstPersonBackpack);
     }
 
     static boolean shouldVirtualizeContainerItem(@NotNull GameMode gameMode, boolean physicalSlotEmpty) {
         return physicalSlotEmpty && gameMode != GameMode.CREATIVE;
+    }
+
+    static boolean shouldRenderCosmeticForOwner(@NotNull GameMode gameMode, boolean physicalSlotEmpty,
+                                                 boolean creativeInventoryEditing) {
+        return gameMode == GameMode.CREATIVE ? !creativeInventoryEditing : physicalSlotEmpty;
     }
 
     static boolean shouldUseOwnerEquipment(@NotNull UUID ownerId, @NotNull UUID viewerId) {
@@ -157,6 +187,14 @@ public final class CosmeticPacketSnapshot {
         return wardrobeRunning;
     }
 
+    public boolean creativeMode() {
+        return creativeMode;
+    }
+
+    public int creativeInventoryRevision() {
+        return creativeInventoryRevision;
+    }
+
     public boolean hidden() {
         return hidden;
     }
@@ -175,6 +213,18 @@ public final class CosmeticPacketSnapshot {
 
     public boolean hasContainerItem(int slot) {
         return containerItems.containsKey(slot);
+    }
+
+    public boolean hasVirtualEquipmentItem(int slot) {
+        return virtualEquipmentItems.containsKey(slot);
+    }
+
+    public boolean matchesVirtualEquipmentItem(@NotNull ItemStack candidate) {
+        if (candidate.getType().isAir()) return false;
+        String cosmeticId = HMCCInventoryUtils.getCosmeticId(candidate);
+        String cosmeticOwner = HMCCInventoryUtils.getCosmeticOwner(candidate);
+        if (cosmeticId != null && virtualCosmeticIds.contains(cosmeticId) && playerId.toString().equals(cosmeticOwner)) return true;
+        return virtualEquipmentItems.values().stream().anyMatch(item -> item.isSimilar(candidate));
     }
 
     public Map<EquipmentSlot, ItemStack> equipmentItemsFor(@NotNull UUID viewerId) {

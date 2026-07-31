@@ -10,6 +10,7 @@ import me.lojosho.hibiscuscommons.packets.PacketAction;
 import me.lojosho.hibiscuscommons.packets.PacketContext;
 import me.lojosho.hibiscuscommons.packets.PacketInterface;
 import me.lojosho.hibiscuscommons.packets.data.ContainerContentWrapper;
+import me.lojosho.hibiscuscommons.packets.data.CreativeInventoryActionWrapper;
 import me.lojosho.hibiscuscommons.packets.data.EntityEquipmentWrapper;
 import me.lojosho.hibiscuscommons.packets.data.PassengerWrapper;
 import me.lojosho.hibiscuscommons.packets.data.PlayerActionWrapper;
@@ -18,6 +19,7 @@ import me.lojosho.hibiscuscommons.packets.data.PlayerInteractWrapper;
 import me.lojosho.hibiscuscommons.packets.data.PlayerScaleWrapper;
 import me.lojosho.hibiscuscommons.packets.data.PlayerSwingWrapper;
 import me.lojosho.hibiscuscommons.packets.data.SlotContentWrapper;
+import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -87,6 +89,21 @@ public class CosmeticPacketInterface implements PacketInterface {
     }
 
     @Override
+    public @NotNull PacketAction readCreativeInventoryAction(@NotNull PacketContext context,
+                                                              @NotNull CreativeInventoryActionWrapper wrapper) {
+        CosmeticPacketSnapshot snapshot = CosmeticPacketSnapshots.get(context.playerId());
+        if (snapshot == null || snapshot.inWardrobe()) return PacketAction.NOTHING;
+
+        ItemStack itemStack = wrapper.getItemStack();
+        CreativeInventoryPolicy.Action action = CreativeInventoryPolicy.evaluate(snapshot.creativeMode(),
+            snapshot.hasVirtualEquipmentItem(wrapper.getSlotNumber()), snapshot.matchesVirtualEquipmentItem(itemStack));
+        if (action == CreativeInventoryPolicy.Action.PASS) return PacketAction.NOTHING;
+
+        scheduleCreativeInventoryEdit(context, snapshot.creativeInventoryRevision());
+        return PacketAction.CANCELLED;
+    }
+
+    @Override
     public @NotNull PacketAction writePassengerContent(@NotNull PacketContext context, @NotNull PassengerWrapper wrapper) {
         CosmeticPacketSnapshot viewer = CosmeticPacketSnapshots.get(context.playerId());
         if (viewer == null || viewer.inWardrobe() || !viewer.interceptPassengerPackets()) return PacketAction.NOTHING;
@@ -100,6 +117,21 @@ public class CosmeticPacketInterface implements PacketInterface {
         passengers.addFirst(owner.backpackEntityId());
         wrapper.setPassengers(passengers);
         return PacketAction.CHANGED;
+    }
+
+    private void scheduleCreativeInventoryEdit(@NotNull PacketContext context, int expectedRevision) {
+        context.execute(HMCCosmeticsPlugin.getInstance(), () -> {
+            CosmeticUser user = CosmeticUsers.getUser(context.playerId());
+            if (user == null) return;
+
+            Player player = user.getPlayer();
+            if (player == null || !player.isOnline() || player.getGameMode() != GameMode.CREATIVE) return;
+            if (!user.beginCreativeInventoryEdit(expectedRevision)) return;
+
+            CosmeticPacketSnapshots.publish(user);
+            player.updateInventory();
+            user.updateCosmetic();
+        }, null, 1L);
     }
 
     @Override

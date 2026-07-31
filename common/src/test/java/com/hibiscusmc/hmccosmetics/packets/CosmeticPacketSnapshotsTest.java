@@ -74,6 +74,16 @@ class CosmeticPacketSnapshotsTest {
     }
 
     @Test
+    void rendersOwnerCosmeticsUntilCreativeInventoryEditingBegins() {
+        assertTrue(CosmeticPacketSnapshot.shouldRenderCosmeticForOwner(GameMode.CREATIVE, true, false));
+        assertTrue(CosmeticPacketSnapshot.shouldRenderCosmeticForOwner(GameMode.CREATIVE, false, false));
+        assertFalse(CosmeticPacketSnapshot.shouldRenderCosmeticForOwner(GameMode.CREATIVE, true, true));
+        assertFalse(CosmeticPacketSnapshot.shouldRenderCosmeticForOwner(GameMode.CREATIVE, false, true));
+        assertTrue(CosmeticPacketSnapshot.shouldRenderCosmeticForOwner(GameMode.SURVIVAL, true, false));
+        assertFalse(CosmeticPacketSnapshot.shouldRenderCosmeticForOwner(GameMode.SURVIVAL, false, false));
+    }
+
+    @Test
     void usesOwnerEquipmentOnlyForTheOwnerConnection() {
         UUID ownerId = UUID.randomUUID();
 
@@ -86,8 +96,8 @@ class CosmeticPacketSnapshotsTest {
     }
 
     private CosmeticPacketSnapshot snapshot(UUID playerId, UUID worldId, int entityId, List<Integer> backpackIds) {
-        return new CosmeticPacketSnapshot(playerId, worldId, entityId, false, false, false, true, true,
-            Map.of(), Map.of(), Map.of(), Set.of(CosmeticSlot.HELMET), null,
-            false, -1, backpackIds, false);
+        return new CosmeticPacketSnapshot(playerId, worldId, entityId, false, false, false, 0, false, true, true,
+            Map.of(), Map.of(), Set.of(), Map.of(), Map.of(), Set.of(CosmeticSlot.HELMET), null, false, -1,
+            backpackIds, false);
     }
 }
