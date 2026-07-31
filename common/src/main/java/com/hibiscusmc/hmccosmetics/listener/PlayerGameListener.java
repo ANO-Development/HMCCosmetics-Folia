@@ -8,6 +8,7 @@ import com.hibiscusmc.hmccosmetics.cosmetic.Cosmetic;
 import com.hibiscusmc.hmccosmetics.cosmetic.CosmeticSlot;
 import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticBackpackType;
 import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticBalloonType;
+import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshots;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUsers;
 import com.hibiscusmc.hmccosmetics.util.HMCCInventoryUtils;
@@ -322,6 +323,22 @@ public class PlayerGameListener implements Listener {
                 if (HMCCInventoryUtils.isCosmeticItem(armor)) armor.setAmount(0);
             }
         }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerGamemodeSwitchComplete(PlayerGameModeChangeEvent event) {
+        Player player = event.getPlayer();
+        CosmeticUser user = CosmeticUsers.getUser(player);
+        if (user == null) return;
+
+        CosmeticPacketSnapshots.publish(user, event.getNewGameMode());
+        FoliaScheduler.runEntityLater(HMCCosmeticsPlugin.getInstance(), player, () -> {
+            CosmeticUser currentUser = CosmeticUsers.getUser(player);
+            if (currentUser == null) return;
+
+            CosmeticPacketSnapshots.publish(currentUser);
+            player.updateInventory();
+        }, null, 1L);
     }
 
     @EventHandler(priority = EventPriority.LOW)

@@ -1,6 +1,7 @@
 package com.hibiscusmc.hmccosmetics.packets;
 
 import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
+import org.bukkit.GameMode;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -17,7 +18,14 @@ public final class CosmeticPacketSnapshots {
     }
 
     public static void publish(@NotNull CosmeticUser user) {
-        CosmeticPacketSnapshot snapshot = CosmeticPacketSnapshot.capture(user);
+        publish(user, CosmeticPacketSnapshot.capture(user));
+    }
+
+    public static void publish(@NotNull CosmeticUser user, @NotNull GameMode gameMode) {
+        publish(user, CosmeticPacketSnapshot.capture(user, gameMode));
+    }
+
+    private static void publish(@NotNull CosmeticUser user, @Nullable CosmeticPacketSnapshot snapshot) {
         if (snapshot == null) {
             remove(user.getUniqueId());
             return;

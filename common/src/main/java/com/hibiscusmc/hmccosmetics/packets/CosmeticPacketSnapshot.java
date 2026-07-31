@@ -9,6 +9,7 @@ import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
 import com.hibiscusmc.hmccosmetics.user.manager.UserBackpackManager;
 import com.hibiscusmc.hmccosmetics.user.manager.UserWardrobeManager;
 import com.hibiscusmc.hmccosmetics.util.HMCCInventoryUtils;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
@@ -70,6 +71,17 @@ public final class CosmeticPacketSnapshot {
         Player player = user.getPlayer();
         if (player == null || !player.isOnline()) return null;
 
+        return capture(user, player, player.getGameMode());
+    }
+
+    static @Nullable CosmeticPacketSnapshot capture(@NotNull CosmeticUser user, @NotNull GameMode gameMode) {
+        Player player = user.getPlayer();
+        if (player == null || !player.isOnline()) return null;
+
+        return capture(user, player, gameMode);
+    }
+
+    private static CosmeticPacketSnapshot capture(@NotNull CosmeticUser user, @NotNull Player player, @NotNull GameMode gameMode) {
         Location location = player.getLocation();
         boolean inWardrobe = user.isInWardrobe();
         UserWardrobeManager wardrobe = user.getWardrobeManager();
@@ -82,11 +94,15 @@ public final class CosmeticPacketSnapshot {
                 if (!(cosmetic instanceof CosmeticArmorType armorType)) continue;
 
                 EquipmentSlot equipmentSlot = armorType.getEquipSlot();
+                ItemStack physicalItem = player.getInventory().getItem(equipmentSlot);
+                boolean physicalSlotEmpty = physicalItem == null || physicalItem.getType().isAir();
                 boolean emptyRequired = Settings.getSlotOption(equipmentSlot).isRequireEmpty();
-                if (emptyRequired && !player.getInventory().getItem(equipmentSlot).getType().isAir()) continue;
+                if (emptyRequired && !physicalSlotEmpty) continue;
 
                 ItemStack cosmeticItem = user.getUserCosmeticItem(armorType);
-                containerItems.put(HMCCInventoryUtils.getPacketArmorSlot(equipmentSlot), cosmeticItem);
+                if (shouldVirtualizeContainerItem(gameMode, physicalSlotEmpty)) {
+                    containerItems.put(HMCCInventoryUtils.getPacketArmorSlot(equipmentSlot), cosmeticItem);
+                }
                 equipmentItems.put(equipmentSlot, cosmeticItem);
             }
         }
@@ -101,6 +117,10 @@ public final class CosmeticPacketSnapshot {
             wardrobeRunning, user.isHidden(), Settings.isPreventOffhandSwapping(), Settings.isBackpackInterceptPassengerPacket(),
             containerItems, equipmentItems, user.getSlotsWithCosmetics(), player.getInventory().getItemInMainHand(),
             player.isInvisible(), backpackEntityId, backpackEntityIds, firstPersonBackpack);
+    }
+
+    static boolean shouldVirtualizeContainerItem(@NotNull GameMode gameMode, boolean physicalSlotEmpty) {
+        return physicalSlotEmpty && gameMode != GameMode.CREATIVE;
     }
 
     public UUID playerId() {

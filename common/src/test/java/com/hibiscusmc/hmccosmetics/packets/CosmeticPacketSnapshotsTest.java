@@ -1,6 +1,7 @@
 package com.hibiscusmc.hmccosmetics.packets;
 
 import com.hibiscusmc.hmccosmetics.cosmetic.CosmeticSlot;
+import org.bukkit.GameMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -12,8 +13,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CosmeticPacketSnapshotsTest {
 
@@ -60,6 +63,14 @@ class CosmeticPacketSnapshotsTest {
 
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
         assertEquals(playerId, CosmeticPacketSnapshots.get(playerId).playerId());
+    }
+
+    @Test
+    void virtualizesOnlyEmptyNonCreativeArmorSlots() {
+        assertTrue(CosmeticPacketSnapshot.shouldVirtualizeContainerItem(GameMode.SURVIVAL, true));
+        assertTrue(CosmeticPacketSnapshot.shouldVirtualizeContainerItem(GameMode.ADVENTURE, true));
+        assertFalse(CosmeticPacketSnapshot.shouldVirtualizeContainerItem(GameMode.SURVIVAL, false));
+        assertFalse(CosmeticPacketSnapshot.shouldVirtualizeContainerItem(GameMode.CREATIVE, true));
     }
 
     private CosmeticPacketSnapshot snapshot(UUID playerId, UUID worldId, int entityId) {
