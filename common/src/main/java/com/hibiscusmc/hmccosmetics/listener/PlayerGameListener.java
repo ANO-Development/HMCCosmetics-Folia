@@ -8,6 +8,7 @@ import com.hibiscusmc.hmccosmetics.cosmetic.Cosmetic;
 import com.hibiscusmc.hmccosmetics.cosmetic.CosmeticSlot;
 import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticBackpackType;
 import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticBalloonType;
+import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshot;
 import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshots;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUsers;
@@ -19,7 +20,6 @@ import me.lojosho.hibiscuscommons.api.events.*;
 import me.lojosho.hibiscuscommons.util.FoliaScheduler;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -30,6 +30,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.*;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -39,37 +40,29 @@ import org.bukkit.potion.PotionEffectType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class PlayerGameListener implements Listener {
     @EventHandler(priority = EventPriority.LOW)
     public void onPlayerClick(@NotNull InventoryClickEvent event) {
-        // || !event.getClickedInventory().getType().equals(InventoryType.PLAYER)
-        if (event.getClick().isShiftClick()) return;
-        MessagesUtil.sendDebugMessages("inventoryclickevent");
-        //if (event.getSlotType() != InventoryType.SlotType.ARMOR) return;
-        CosmeticUser user = CosmeticUsers.getUser(event.getWhoClicked().getUniqueId());
-        if (user == null) return;
         ItemStack item = event.getCurrentItem();
-        if (item == null) return;
-
-        if (Settings.isDestroyLooseCosmetics() && HMCCInventoryUtils.isCosmeticItem(event.getCurrentItem())) {
-            MessagesUtil.sendDebugMessages("remvoe item");
-            event.getWhoClicked().getInventory().removeItem(event.getCurrentItem());
+        if (Settings.isDestroyLooseCosmetics() && HMCCInventoryUtils.isCosmeticItem(item)) {
+            event.getWhoClicked().getInventory().removeItem(item);
         }
 
-        EquipmentSlot slot = getArmorSlot(item.getType());
-        if (slot == null) return;
-        CosmeticSlot cosmeticSlot = HMCCInventoryUtils.BukkitCosmeticSlot(slot);
-        if (cosmeticSlot == null) return;
-        if (!user.hasCosmeticInSlot(cosmeticSlot)) return;
-        FoliaScheduler.runEntityLater(HMCCosmeticsPlugin.getInstance(), event.getWhoClicked(), () -> {
-            user.updateCosmetic(cosmeticSlot);
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        if (event.getView().getTopInventory().getType() != InventoryType.CRAFTING) return;
+
+        CosmeticPacketSnapshot snapshot = CosmeticPacketSnapshots.get(player.getUniqueId());
+        if (snapshot == null || !snapshot.hasContainerItem(event.getRawSlot())) return;
+
+        FoliaScheduler.runEntityLater(HMCCosmeticsPlugin.getInstance(), player, () -> {
+            CosmeticUser currentUser = CosmeticUsers.getUser(player);
+            if (currentUser == null) return;
+
+            CosmeticPacketSnapshots.publish(currentUser);
+            player.updateInventory();
         }, null, 1L);
-        MessagesUtil.sendDebugMessages("Event fired, updated cosmetic " + cosmeticSlot);
     }
 
     @EventHandler(priority = EventPriority.LOW)
@@ -336,7 +329,7 @@ public class PlayerGameListener implements Listener {
             CosmeticUser currentUser = CosmeticUsers.getUser(player);
             if (currentUser == null) return;
 
-            CosmeticPacketSnapshots.publish(currentUser);
+            currentUser.updateCosmetic();
             player.updateInventory();
         }, null, 1L);
     }
@@ -435,50 +428,4 @@ public class PlayerGameListener implements Listener {
         user.showCosmetics(CosmeticUser.HiddenReason.PLUGIN);
     }
 
-    @Nullable
-    private EquipmentSlot getArmorSlot(final Material material) {
-        for (final EquipmentSlot slot : EquipmentSlot.values()) {
-            final Set<Material> armorItems = ARMOR_ITEMS.get(slot);
-            if (armorItems == null) continue;
-            if (armorItems.contains(material)) return slot;
-        }
-        return null;
-    }
-
-    final static Map<EquipmentSlot, Set<Material>> ARMOR_ITEMS = Map.of(
-            EquipmentSlot.HEAD, EnumSet.of(
-                    Material.LEATHER_HELMET,
-                    Material.CHAINMAIL_HELMET,
-                    Material.IRON_HELMET,
-                    Material.GOLDEN_HELMET,
-                    Material.DIAMOND_HELMET,
-                    Material.NETHERITE_HELMET,
-                    Material.TURTLE_HELMET
-            ),
-            EquipmentSlot.CHEST, EnumSet.of(
-                    Material.LEATHER_CHESTPLATE,
-                    Material.CHAINMAIL_CHESTPLATE,
-                    Material.IRON_CHESTPLATE,
-                    Material.GOLDEN_CHESTPLATE,
-                    Material.DIAMOND_CHESTPLATE,
-                    Material.NETHERITE_CHESTPLATE,
-                    Material.ELYTRA
-            ),
-            EquipmentSlot.LEGS, EnumSet.of(
-                    Material.LEATHER_LEGGINGS,
-                    Material.CHAINMAIL_LEGGINGS,
-                    Material.IRON_LEGGINGS,
-                    Material.GOLDEN_LEGGINGS,
-                    Material.DIAMOND_LEGGINGS,
-                    Material.NETHERITE_LEGGINGS
-            ),
-            EquipmentSlot.FEET, EnumSet.of(
-                    Material.LEATHER_BOOTS,
-                    Material.CHAINMAIL_BOOTS,
-                    Material.IRON_BOOTS,
-                    Material.GOLDEN_BOOTS,
-                    Material.DIAMOND_BOOTS,
-                    Material.NETHERITE_BOOTS
-            )
-    );
 }

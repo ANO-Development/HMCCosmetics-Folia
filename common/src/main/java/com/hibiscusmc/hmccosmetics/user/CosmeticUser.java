@@ -299,8 +299,8 @@ public class CosmeticUser implements CosmeticHolder {
         }
         colors.remove(slot);
         playerCosmetics.remove(slot);
-        removeArmor(slot);
         refreshPacketSnapshot();
+        removeArmor(slot);
     }
 
     @Override
@@ -324,8 +324,8 @@ public class CosmeticUser implements CosmeticHolder {
             return false;
         }
 
-        behavior.dispatchUpdate(this);
         refreshPacketSnapshot();
+        behavior.dispatchUpdate(this);
         return true;
     }
 

@@ -73,13 +73,21 @@ class CosmeticPacketSnapshotsTest {
         assertFalse(CosmeticPacketSnapshot.shouldVirtualizeContainerItem(GameMode.CREATIVE, true));
     }
 
+    @Test
+    void usesOwnerEquipmentOnlyForTheOwnerConnection() {
+        UUID ownerId = UUID.randomUUID();
+
+        assertTrue(CosmeticPacketSnapshot.shouldUseOwnerEquipment(ownerId, ownerId));
+        assertFalse(CosmeticPacketSnapshot.shouldUseOwnerEquipment(ownerId, UUID.randomUUID()));
+    }
+
     private CosmeticPacketSnapshot snapshot(UUID playerId, UUID worldId, int entityId) {
         return snapshot(playerId, worldId, entityId, List.of());
     }
 
     private CosmeticPacketSnapshot snapshot(UUID playerId, UUID worldId, int entityId, List<Integer> backpackIds) {
         return new CosmeticPacketSnapshot(playerId, worldId, entityId, false, false, false, true, true,
-            Map.of(), Map.of(), Set.of(CosmeticSlot.HELMET), null,
+            Map.of(), Map.of(), Map.of(), Set.of(CosmeticSlot.HELMET), null,
             false, -1, backpackIds, false);
     }
 }

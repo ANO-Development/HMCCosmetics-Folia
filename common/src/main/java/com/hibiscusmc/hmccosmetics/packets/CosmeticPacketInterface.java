@@ -5,14 +5,12 @@ import com.hibiscusmc.hmccosmetics.cosmetic.CosmeticSlot;
 import com.hibiscusmc.hmccosmetics.gui.Menu;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUsers;
-import com.hibiscusmc.hmccosmetics.util.HMCCInventoryUtils;
 import com.hibiscusmc.hmccosmetics.util.packets.HMCCPacketManager;
 import me.lojosho.hibiscuscommons.packets.PacketAction;
 import me.lojosho.hibiscuscommons.packets.PacketContext;
 import me.lojosho.hibiscuscommons.packets.PacketInterface;
 import me.lojosho.hibiscuscommons.packets.data.ContainerContentWrapper;
 import me.lojosho.hibiscuscommons.packets.data.EntityEquipmentWrapper;
-import me.lojosho.hibiscuscommons.packets.data.InventoryClickWrapper;
 import me.lojosho.hibiscuscommons.packets.data.PassengerWrapper;
 import me.lojosho.hibiscuscommons.packets.data.PlayerActionWrapper;
 import me.lojosho.hibiscuscommons.packets.data.PlayerInputWrapper;
@@ -70,7 +68,7 @@ public class CosmeticPacketInterface implements PacketInterface {
 
         Map<EquipmentSlot, ItemStack> equipment = wrapper.getArmor();
         boolean changed = false;
-        for (Map.Entry<EquipmentSlot, ItemStack> entry : owner.equipmentItems().entrySet()) {
+        for (Map.Entry<EquipmentSlot, ItemStack> entry : owner.equipmentItemsFor(context.playerId()).entrySet()) {
             if (!equipment.containsKey(entry.getKey())) continue;
             equipment.put(entry.getKey(), entry.getValue());
             changed = true;
@@ -116,21 +114,6 @@ public class CosmeticPacketInterface implements PacketInterface {
                 HMCCPacketManager.sendEntityScalePacket(cosmeticId, wrapper.getScale(), List.of(viewer));
             }
         });
-        return PacketAction.NOTHING;
-    }
-
-    @Override
-    public @NotNull PacketAction readInventoryClick(@NotNull PacketContext context, @NotNull InventoryClickWrapper wrapper) {
-        if (wrapper.getClickType() != 0 || wrapper.getSlotNumber() == -999) return PacketAction.NOTHING;
-
-        CosmeticPacketSnapshot snapshot = CosmeticPacketSnapshots.get(context.playerId());
-        CosmeticSlot slot = HMCCInventoryUtils.NMSCosmeticSlot(wrapper.getSlotNumber());
-        if (snapshot == null || snapshot.inWardrobe() || slot == null || !snapshot.hasCosmetic(slot)) return PacketAction.NOTHING;
-
-        context.execute(HMCCosmeticsPlugin.getInstance(), () -> {
-            CosmeticUser user = CosmeticUsers.getUser(context.playerId());
-            if (user != null) user.updateCosmetic(slot);
-        }, null, 1L);
         return PacketAction.NOTHING;
     }
 

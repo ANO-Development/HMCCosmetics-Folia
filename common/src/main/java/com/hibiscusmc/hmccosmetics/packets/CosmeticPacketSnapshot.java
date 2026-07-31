@@ -11,6 +11,7 @@ import com.hibiscusmc.hmccosmetics.user.manager.UserWardrobeManager;
 import com.hibiscusmc.hmccosmetics.util.HMCCInventoryUtils;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -37,6 +38,7 @@ public final class CosmeticPacketSnapshot {
     private final boolean interceptPassengerPackets;
     private final Map<Integer, ItemStack> containerItems;
     private final Map<EquipmentSlot, ItemStack> equipmentItems;
+    private final Map<EquipmentSlot, ItemStack> ownerEquipmentItems;
     private final Set<CosmeticSlot> equippedSlots;
     private final ItemStack mainHand;
     private final boolean invisible;
@@ -45,10 +47,11 @@ public final class CosmeticPacketSnapshot {
     private final boolean firstPersonBackpack;
 
     CosmeticPacketSnapshot(UUID playerId, UUID worldId, int entityId, boolean inWardrobe, boolean wardrobeRunning, boolean hidden,
-                                   boolean preventOffhandSwapping, boolean interceptPassengerPackets,
-                                   Map<Integer, ItemStack> containerItems, Map<EquipmentSlot, ItemStack> equipmentItems,
-                                   Set<CosmeticSlot> equippedSlots, ItemStack mainHand, boolean invisible,
-                                   int backpackEntityId, List<Integer> backpackEntityIds, boolean firstPersonBackpack) {
+                           boolean preventOffhandSwapping, boolean interceptPassengerPackets,
+                           Map<Integer, ItemStack> containerItems, Map<EquipmentSlot, ItemStack> equipmentItems,
+                           Map<EquipmentSlot, ItemStack> ownerEquipmentItems, Set<CosmeticSlot> equippedSlots,
+                           ItemStack mainHand, boolean invisible, int backpackEntityId,
+                           List<Integer> backpackEntityIds, boolean firstPersonBackpack) {
         this.playerId = playerId;
         this.worldId = worldId;
         this.entityId = entityId;
@@ -59,6 +62,7 @@ public final class CosmeticPacketSnapshot {
         this.interceptPassengerPackets = interceptPassengerPackets;
         this.containerItems = cloneItems(containerItems);
         this.equipmentItems = cloneEquipment(equipmentItems);
+        this.ownerEquipmentItems = cloneEquipment(ownerEquipmentItems);
         this.equippedSlots = Set.copyOf(equippedSlots);
         this.mainHand = cloneItem(mainHand);
         this.invisible = invisible;
@@ -88,6 +92,7 @@ public final class CosmeticPacketSnapshot {
         boolean wardrobeRunning = wardrobe != null && wardrobe.getWardrobeStatus() == UserWardrobeManager.WardrobeStatus.RUNNING;
         Map<Integer, ItemStack> containerItems = new HashMap<>();
         Map<EquipmentSlot, ItemStack> equipmentItems = new EnumMap<>(EquipmentSlot.class);
+        Map<EquipmentSlot, ItemStack> ownerEquipmentItems = new EnumMap<>(EquipmentSlot.class);
 
         if (!inWardrobe) {
             for (Cosmetic cosmetic : user.getCosmetics()) {
@@ -95,13 +100,17 @@ public final class CosmeticPacketSnapshot {
 
                 EquipmentSlot equipmentSlot = armorType.getEquipSlot();
                 ItemStack physicalItem = player.getInventory().getItem(equipmentSlot);
-                boolean physicalSlotEmpty = physicalItem == null || physicalItem.getType().isAir();
+                if (physicalItem == null) physicalItem = new ItemStack(Material.AIR);
+                boolean physicalSlotEmpty = physicalItem.getType().isAir();
                 boolean emptyRequired = Settings.getSlotOption(equipmentSlot).isRequireEmpty();
                 if (emptyRequired && !physicalSlotEmpty) continue;
 
                 ItemStack cosmeticItem = user.getUserCosmeticItem(armorType);
                 if (shouldVirtualizeContainerItem(gameMode, physicalSlotEmpty)) {
                     containerItems.put(HMCCInventoryUtils.getPacketArmorSlot(equipmentSlot), cosmeticItem);
+                    ownerEquipmentItems.put(equipmentSlot, cosmeticItem);
+                } else {
+                    ownerEquipmentItems.put(equipmentSlot, physicalItem);
                 }
                 equipmentItems.put(equipmentSlot, cosmeticItem);
             }
@@ -115,12 +124,17 @@ public final class CosmeticPacketSnapshot {
 
         return new CosmeticPacketSnapshot(user.getUniqueId(), location.getWorld().getUID(), player.getEntityId(), inWardrobe,
             wardrobeRunning, user.isHidden(), Settings.isPreventOffhandSwapping(), Settings.isBackpackInterceptPassengerPacket(),
-            containerItems, equipmentItems, user.getSlotsWithCosmetics(), player.getInventory().getItemInMainHand(),
-            player.isInvisible(), backpackEntityId, backpackEntityIds, firstPersonBackpack);
+            containerItems, equipmentItems, ownerEquipmentItems, user.getSlotsWithCosmetics(),
+            player.getInventory().getItemInMainHand(), player.isInvisible(), backpackEntityId,
+            backpackEntityIds, firstPersonBackpack);
     }
 
     static boolean shouldVirtualizeContainerItem(@NotNull GameMode gameMode, boolean physicalSlotEmpty) {
         return physicalSlotEmpty && gameMode != GameMode.CREATIVE;
+    }
+
+    static boolean shouldUseOwnerEquipment(@NotNull UUID ownerId, @NotNull UUID viewerId) {
+        return ownerId.equals(viewerId);
     }
 
     public UUID playerId() {
@@ -159,8 +173,13 @@ public final class CosmeticPacketSnapshot {
         return cloneItem(containerItems.get(slot));
     }
 
-    public Map<EquipmentSlot, ItemStack> equipmentItems() {
-        return cloneEquipment(equipmentItems);
+    public boolean hasContainerItem(int slot) {
+        return containerItems.containsKey(slot);
+    }
+
+    public Map<EquipmentSlot, ItemStack> equipmentItemsFor(@NotNull UUID viewerId) {
+        Map<EquipmentSlot, ItemStack> selectedItems = shouldUseOwnerEquipment(playerId, viewerId) ? ownerEquipmentItems : equipmentItems;
+        return cloneEquipment(selectedItems);
     }
 
     public boolean hasCosmetic(CosmeticSlot slot) {
