@@ -21,6 +21,7 @@ import com.hibiscusmc.hmccosmetics.gui.Menus;
 import com.hibiscusmc.hmccosmetics.packets.CosmeticPacketSnapshots;
 import com.hibiscusmc.hmccosmetics.user.manager.UserBackpackManager;
 import com.hibiscusmc.hmccosmetics.user.manager.UserBalloonManager;
+import com.hibiscusmc.hmccosmetics.user.manager.UserHatOverlayManager;
 import com.hibiscusmc.hmccosmetics.user.manager.UserWardrobeManager;
 import com.hibiscusmc.hmccosmetics.util.HMCCInventoryUtils;
 import com.hibiscusmc.hmccosmetics.util.MessagesUtil;
@@ -61,6 +62,7 @@ public class CosmeticUser implements CosmeticHolder {
     private UserBalloonManager userBalloonManager;
     @Getter @Nullable
     private UserBackpackManager userBackpackManager;
+    private UserHatOverlayManager userHatOverlayManager;
 
     // Cosmetic Settings/Toggles
     private final ArrayList<HiddenReason> hiddenReason = new ArrayList<>();
@@ -220,6 +222,7 @@ public class CosmeticUser implements CosmeticHolder {
         if (tickingTask != null) tickingTask.cancel();
         tickingTask = null;
 
+        removeHatOverlay();
         despawnBackpack();
         despawnBalloon();
     }
@@ -299,6 +302,9 @@ public class CosmeticUser implements CosmeticHolder {
         if (slot == CosmeticSlot.BALLOON) {
             despawnBalloon();
         }
+        if (slot == CosmeticSlot.HELMET) {
+            removeHatOverlay();
+        }
         colors.remove(slot);
         playerCosmetics.remove(slot);
         refreshPacketSnapshot();
@@ -365,6 +371,11 @@ public class CosmeticUser implements CosmeticHolder {
             if(cosmetic instanceof CosmeticArmorType armorType) {
                 if (isInWardrobe()) return;
                 if (!(getEntity() instanceof HumanEntity humanEntity)) return;
+
+                if (armorType.getEquipSlot() == EquipmentSlot.HEAD && updateHatOverlay(armorType)) {
+                    items.put(EquipmentSlot.HEAD, humanEntity.getInventory().getItem(EquipmentSlot.HEAD));
+                    continue;
+                }
 
                 boolean requireEmpty = Settings.getSlotOption(armorType.getEquipSlot()).isRequireEmpty();
                 boolean isAir = humanEntity.getInventory().getItem(armorType.getEquipSlot()).getType().isAir();
@@ -699,6 +710,24 @@ public class CosmeticUser implements CosmeticHolder {
             player.hidePlayer(plugin, viewer);
             FoliaScheduler.runEntity(plugin, viewer, () -> viewer.hidePlayer(plugin, player), null);
         }
+    }
+
+    @ApiStatus.Internal
+    public boolean updateHatOverlay(@NotNull CosmeticArmorType cosmetic) {
+        if (userHatOverlayManager == null) userHatOverlayManager = new UserHatOverlayManager(this);
+        return userHatOverlayManager.update(cosmetic);
+    }
+
+    @ApiStatus.Internal
+    public void updateHatOverlayRotation(@NotNull Location location) {
+        if (userHatOverlayManager != null) userHatOverlayManager.updateRotation(location);
+    }
+
+    @ApiStatus.Internal
+    public void removeHatOverlay() {
+        if (userHatOverlayManager == null) return;
+        userHatOverlayManager.remove();
+        userHatOverlayManager = null;
     }
 
     public void showPlayer() {

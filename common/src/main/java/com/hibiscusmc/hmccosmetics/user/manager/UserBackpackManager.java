@@ -80,13 +80,7 @@ public class UserBackpackManager {
 
         Entity entity = user.getEntity();
 
-        int[] passengerIDs = new int[entity.getPassengers().size() + 1];
-
-        for (int i = 0; i < entity.getPassengers().size(); i++) {
-            passengerIDs[i] = entity.getPassengers().get(i).getEntityId();
-        }
-
-        passengerIDs[passengerIDs.length - 1] = this.getFirstArmorStandId();
+        int[] passengerIDs = HMCCPacketManager.passengerIdsWith(entity, getFirstArmorStandId());
 
         if (cosmeticBackpackType.isFirstPersonCompadible()) {
             for (int i = particleCloud.size(); i < cosmeticBackpackType.getHeight(); i++) {
@@ -97,8 +91,12 @@ public class UserBackpackManager {
             }
             // Copied code from updating the backpack
             for (int i = 0; i < particleCloud.size(); i++) {
-                if (i == 0) ownerBundle.add(packetBuilder.buildEntityMountPacket(entity.getEntityId(), new int[]{particleCloud.get(i)}));
-                else ownerBundle.add(packetBuilder.buildEntityMountPacket(particleCloud.get(i - 1), new int[]{particleCloud.get(i)}));
+                if (i == 0) {
+                    int[] ownerPassengerIds = HMCCPacketManager.passengerIdsWith(entity, particleCloud.get(i));
+                    ownerBundle.add(packetBuilder.buildEntityMountPacket(entity.getEntityId(), ownerPassengerIds));
+                } else {
+                    ownerBundle.add(packetBuilder.buildEntityMountPacket(particleCloud.get(i - 1), new int[]{particleCloud.get(i)}));
+                }
             }
             ownerBundle.add(packetBuilder.buildEntityMountPacket(particleCloud.getLast(), new int[]{getFirstArmorStandId()}));
             if (!user.isHidden()) ownerBundle.add(packetBuilder.buildEntityEquipmentSlotUpdatePacket(getFirstArmorStandId(), Map.of(EquipmentSlot.HEAD, user.getUserCosmeticItem(cosmeticBackpackType, cosmeticBackpackType.getFirstPersonBackpack()))));

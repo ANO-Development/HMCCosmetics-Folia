@@ -6,6 +6,7 @@ import com.hibiscusmc.hmccosmetics.cosmetic.CosmeticSlot;
 import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticArmorType;
 import com.hibiscusmc.hmccosmetics.cosmetic.types.CosmeticBackpackType;
 import com.hibiscusmc.hmccosmetics.user.CosmeticUser;
+import com.hibiscusmc.hmccosmetics.user.manager.HatOverlayPolicy;
 import com.hibiscusmc.hmccosmetics.user.manager.UserBackpackManager;
 import com.hibiscusmc.hmccosmetics.user.manager.UserWardrobeManager;
 import com.hibiscusmc.hmccosmetics.util.HMCCInventoryUtils;
@@ -119,6 +120,8 @@ public final class CosmeticPacketSnapshot {
                 boolean physicalSlotEmpty = physicalItem.getType().isAir();
                 boolean emptyRequired = Settings.getSlotOption(equipmentSlot).isRequireEmpty();
                 if (emptyRequired && !physicalSlotEmpty) continue;
+                boolean hatOverlay = equipmentSlot == EquipmentSlot.HEAD
+                    && HatOverlayPolicy.shouldRender(gameMode, false, hidden, emptyRequired, physicalSlotEmpty);
 
                 ItemStack cosmeticItem = user.getUserCosmeticItem(armorType);
                 int packetSlot = HMCCInventoryUtils.getPacketArmorSlot(equipmentSlot);
@@ -136,7 +139,7 @@ public final class CosmeticPacketSnapshot {
                 } else {
                     ownerEquipmentItems.put(equipmentSlot, physicalItem);
                 }
-                equipmentItems.put(equipmentSlot, cosmeticItem);
+                equipmentItems.put(equipmentSlot, hatOverlay ? physicalItem : cosmeticItem);
             }
         }
 

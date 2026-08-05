@@ -48,6 +48,8 @@ public class PaperPlayerGameListener implements Listener {
         CosmeticUser user = CosmeticUsers.getUser(event.getPlayer());
         if (user == null) return;
         if (user.isInWardrobe()) return;
+        user.removeHatOverlay();
+        if (user.hasCosmeticInSlot(CosmeticSlot.HELMET)) user.updateCosmetic(CosmeticSlot.HELMET);
         if (user.hasCosmeticInSlot(CosmeticSlot.BACKPACK)) user.respawnBackpack();
     }
 

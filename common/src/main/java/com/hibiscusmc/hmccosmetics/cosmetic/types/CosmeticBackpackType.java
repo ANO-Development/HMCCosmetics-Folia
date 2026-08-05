@@ -88,17 +88,12 @@ public class CosmeticBackpackType extends Cosmetic implements CosmeticUpdateBeha
         }
 
         // If true, it will send the riding packet to all players. If false, it will send the riding packet only to new players
-        int[] existingPassengers = entity.getPassengers().stream()
-                .mapToInt(Entity::getEntityId)
-                .toArray();
-        boolean hasExistingPassengers = existingPassengers.length > 0;
+        int[] passengerIds = HMCCPacketManager.passengerIdsWith(entity, firstArmorStandId);
 
         if (Settings.isBackpackForceRidingEnabled()) {
-            HMCCPacketManager.sendRidingPacket(entity.getEntityId(), firstArmorStandId, entityManager.getViewers());
-            if (hasExistingPassengers) HMCCPacketManager.sendRidingPacket(firstArmorStandId, existingPassengers, entityManager.getViewers());
+            NMSHandlers.getHandler().getPacketBuilder().buildEntityMountPacket(entity.getEntityId(), passengerIds).sendPacket(entityManager.getViewers());
         } else {
-            newViewerBundle.add(packetBuilder.buildEntityMountPacket(entity.getEntityId(), new int[]{firstArmorStandId}));
-            if (hasExistingPassengers) newViewerBundle.add(packetBuilder.buildEntityMountPacket(firstArmorStandId, existingPassengers));
+            newViewerBundle.add(packetBuilder.buildEntityMountPacket(entity.getEntityId(), passengerIds));
         }
 
         if (isFirstPersonCompadible() && !user.isInWardrobe() && user.getPlayer() != null) {
@@ -107,13 +102,13 @@ public class CosmeticBackpackType extends Cosmetic implements CosmeticUpdateBeha
             ArrayList<Integer> particleCloud = backpackManager.getAreaEffectEntityId();
             for (int i = 0; i < particleCloud.size(); i++) {
                 if (i == 0) {
-                    ownerBundle.add(packetBuilder.buildEntityMountPacket(entity.getEntityId(), new int[]{particleCloud.get(i)}));
+                    int[] ownerPassengerIds = HMCCPacketManager.passengerIdsWith(entity, particleCloud.get(i));
+                    ownerBundle.add(packetBuilder.buildEntityMountPacket(entity.getEntityId(), ownerPassengerIds));
                 } else {
                     ownerBundle.add(packetBuilder.buildEntityMountPacket(particleCloud.get(i - 1), new int[]{particleCloud.get(i)}));
                 }
             }
             ownerBundle.add(packetBuilder.buildEntityMountPacket(particleCloud.getLast(), new int[]{firstArmorStandId}));
-            if (hasExistingPassengers) ownerBundle.add(packetBuilder.buildEntityMountPacket(firstArmorStandId, existingPassengers));
             if (!user.isHidden()) {
                 ownerBundle.add(packetBuilder.buildEntityEquipmentSlotUpdatePacket(firstArmorStandId, Map.of(EquipmentSlot.HEAD, user.getUserCosmeticItem(this, firstPersonBackpack))));
             }

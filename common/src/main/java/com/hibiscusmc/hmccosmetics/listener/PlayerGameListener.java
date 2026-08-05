@@ -89,6 +89,8 @@ public class PlayerGameListener implements Listener {
             return;
         }
 
+        user.removeHatOverlay();
+
         if (user.isInWardrobe()) {
             user.leaveWardrobe(false);
         }

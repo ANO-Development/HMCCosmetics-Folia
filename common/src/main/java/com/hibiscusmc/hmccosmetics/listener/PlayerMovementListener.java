@@ -37,6 +37,8 @@ public class PlayerMovementListener implements Listener {
             return;
         }
 
+        user.updateHatOverlayRotation(ev.getTo());
+
         if(!updateDirtyLocation(ev.getPlayer(), ev.getTo())) {
             return;
         }

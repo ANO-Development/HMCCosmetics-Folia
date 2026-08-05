@@ -14,6 +14,7 @@ import me.lojosho.hibiscuscommons.packets.wrapper.PacketWrapper;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.attribute.Attribute;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
@@ -188,6 +189,16 @@ public class HMCCPacketManager {
             final Location location
     ) {
         sendRidingPacket(mountId, passengerId, getViewers(location));
+    }
+
+    public static int[] passengerIdsWith(@NotNull Entity vehicle, int additionalPassengerId) {
+        List<Entity> passengers = vehicle.getPassengers();
+        int[] passengerIds = new int[passengers.size() + 1];
+        for (int index = 0; index < passengers.size(); index++) {
+            passengerIds[index] = passengers.get(index).getEntityId();
+        }
+        passengerIds[passengers.size()] = additionalPassengerId;
+        return passengerIds;
     }
 
     /**

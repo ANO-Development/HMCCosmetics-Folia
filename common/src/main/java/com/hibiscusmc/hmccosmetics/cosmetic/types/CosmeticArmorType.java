@@ -38,6 +38,12 @@ public class CosmeticArmorType extends Cosmetic implements CosmeticUpdateBehavio
         if (user.isInWardrobe()) return;
         Entity entity = Bukkit.getEntity(user.getUniqueId());
         if (entity == null) return;
+        if (equipSlot == EquipmentSlot.HEAD && user.updateHatOverlay(this)) {
+            Player player = user.getPlayer();
+            if (player == null) return;
+            HMCCPacketManager.equipmentSlotUpdate(entity.getEntityId(), equipSlot, player.getInventory().getHelmet(), HMCCPacketManager.getViewers(entity.getLocation()));
+            return;
+        }
         if (Settings.getSlotOption(equipSlot).isRequireEmpty() && entity instanceof HumanEntity humanEntity) {
             if (!humanEntity.getInventory().getItem(equipSlot).getType().isAir()) return;
         }
